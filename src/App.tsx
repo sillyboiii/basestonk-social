@@ -8,13 +8,13 @@ import type { Token, FeedItem, LeaderRow, UserPost } from './lib/api'
 import { derivePosts, avatarGradient, initials, relativeTime, shortAddr } from './lib/social'
 import type { Post } from './lib/social'
 
-type View = 'home' | 'trending' | 'degens' | 'plwall'
+type View = 'home' | 'trending' | 'degens' | 'portfolio'
 
 const NAV: { key: View; label: string }[] = [
   { key: 'home', label: 'Home' },
   { key: 'trending', label: 'Trending' },
   { key: 'degens', label: 'Degens' },
-  { key: 'plwall', label: 'P&L wall' },
+  { key: 'portfolio', label: 'Portfolio' },
 ]
 
 const AVATARS = ['💎', '🐸', '🦅', '🚀', '🔥', '🧠', '👑', '😈', '🫘', '📈']
@@ -47,7 +47,7 @@ function Avatar({ wallet, avatar, size = 40, className = '' }: { wallet: string;
 
 function CopyAddr({ addr, short, className = '' }: { addr: string; short?: number; className?: string }) {
   const [copied, setCopied] = useState(false)
-  const text = short ? shortAddr(addr, short) : (shortAddr(addr) )
+  const text = short ? shortAddr(addr, short) : shortAddr(addr)
   return (
     <button
       onClick={async (e) => {
@@ -59,14 +59,14 @@ function CopyAddr({ addr, short, className = '' }: { addr: string; short?: numbe
         } catch { /* clipboard unavailable */ }
       }}
       title={`Copy ${addr}`}
-      className={`inline-flex items-center gap-1.5 font-mono transition-colors hover:text-white ${className}`}
+      className={`inline-flex items-center gap-1.5 font-mono transition-colors group-hover/deg:text-white hover:text-white ${className}`}
     >
       {copied ? (
         <span className="rounded bg-[#45d68f]/15 px-1.5 py-0.5 text-[10px] font-bold text-[#45d68f]">copied ✓</span>
       ) : (
         <>
           <span>{text}</span>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="opacity-60 group-hover/deg:opacity-100">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="opacity-50 group-hover/deg:opacity-100">
             <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2" />
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="2" />
           </svg>
@@ -76,7 +76,7 @@ function CopyAddr({ addr, short, className = '' }: { addr: string; short?: numbe
   )
 }
 
-// ─── Sparkline ─────────────────────────────────────────────────────────────
+// ─── Candlestick sparkline ─────────────────────────────────────────────────
 
 function Sparkline({ data, up, w = 170, h = 40 }: { data: number[]; up: boolean; w?: number; h?: number }) {
   if (!data || data.length < 2) return <div style={{ width: w, height: h }} />
@@ -121,34 +121,88 @@ function CoinGlyph({ src, symbol, size = 44, ring = true }: { src?: string; symb
   )
 }
 
-// ─── Composer: actually post ───────────────────────────────────────────────
+// ─── Caret-coordinate helper for the inline $ ticker dropdown ──────────────
+
+function caretCoords(textarea: HTMLTextAreaElement): { x: number; y: number } {
+  const pos = textarea.selectionStart ?? textarea.value.length
+  const cs = getComputedStyle(textarea)
+  const div = document.createElement('div')
+  for (const p of ['boxSizing', 'width', 'letterSpacing', 'lineHeight', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth', 'fontFamily', 'fontSize', 'fontWeight', 'tabSize'] as const) {
+    div.style[p] = cs[p] as any
+  }
+  div.style.position = 'absolute'
+  div.style.whiteSpace = 'pre-wrap'
+  div.style.wordBreak = 'break-word'
+  div.style.visibility = 'hidden'
+  div.style.top = '0px'
+  div.style.left = '-9999px'
+  const a = document.createElement('span')
+  const b = document.createElement('span')
+  a.textContent = textarea.value.slice(0, pos)
+  b.textContent = textarea.value.slice(pos) || '.'
+  div.appendChild(a)
+  div.appendChild(b)
+  document.body.appendChild(div)
+  const bb = b.getBoundingClientRect()
+  const tb = textarea.getBoundingClientRect()
+  document.body.removeChild(div)
+  return { x: bb.left - tb.left, y: bb.top - tb.top }
+}
+
+// Find the active "$tick" being typed right before the caret.
+function probeTicker(body: string, caret: number): { start: number; query: string } | null {
+  const before = body.slice(0, caret)
+  const m = before.match(/(^|\s)\$([a-zA-Z0-9]+)$/)
+  if (!m) return null
+  return { start: caret - m[2].length - 1, query: m[2] }
+}
+
+// ─── Composer: actually post, with inline $ ticker autocomplete ────────────
 
 function Composer({ identity, tokens, onPosted }: { identity: string; tokens: Token[]; onPosted: () => void }) {
   const [body, setBody] = useState('')
   const [tag, setTag] = useState<Token | null>(null)
-  const [query, setQuery] = useState('')
-  const [open, setOpen] = useState(false)
+  const [caret, setCaret] = useState(0)
+  const [tickPos, setTickPos] = useState<{ x: number; y: number } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showProfile, setShowProfile] = useState(false)
   const [handle, setHandle] = useState(() => localStorage.getItem('bstonk_handle') || '')
   const [avatar, setAvatar] = useState(() => localStorage.getItem('bstonk_avatar') || '')
   const [savingProfile, setSavingProfile] = useState(false)
-  const boxRef = useRef<HTMLDivElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const taRef = useRef<HTMLTextAreaElement>(null)
 
+  const ticker = useMemo(() => probeTicker(body, caret), [body, caret])
   const matches = useMemo(() => {
-    const q = query.trim().toLowerCase().replace(/^\$/, '')
-    if (!q) return []
-    return tokens.filter((t) => t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q)).slice(0, 6)
-  }, [query, tokens])
+    if (!ticker || !ticker.query) return []
+    const q = ticker.query.toLowerCase()
+    return tokens.filter((t) => t.symbol.toLowerCase().startsWith(q) || t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q)).slice(0, 6)
+  }, [ticker, tokens])
+  const showTick = !!ticker && ticker.query.length >= 1 && matches.length > 0
 
   useEffect(() => {
     function onDoc(e: MouseEvent) {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setTickPos(null)
+      }
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
+
+  function pickToken(t: Token) {
+    if (!taRef.current || !ticker) return
+    const next = body.slice(0, ticker.start) + `$${t.symbol}` + body.slice(caret)
+    const nextCaret = ticker.start + t.symbol.length + 1
+    setBody(next)
+    setTag(t)
+    setTickPos(null)
+    requestAnimationFrame(() => {
+      taRef.current!.focus()
+      taRef.current!.setSelectionRange(nextCaret, nextCaret)
+    })
+  }
 
   async function submit() {
     const clean = body.trim()
@@ -159,7 +213,7 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
       await createPost({ author: identity, body: clean, tokenSymbol: tag?.symbol, tokenImage: tag?.imageUrl })
       setBody('')
       setTag(null)
-      setQuery('')
+      setTickPos(null)
       onPosted()
     } catch (e: any) {
       setError(e.message || 'Post failed')
@@ -177,7 +231,6 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
       setHandle(acc.handle || '')
       setAvatar(acc.avatar || '')
       setShowProfile(false)
-      onPosted()
     } catch (e: any) {
       setError(e.message || 'Save failed')
     } finally {
@@ -190,10 +243,9 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
       <div className="flex items-start gap-3">
         <button onClick={() => setShowProfile((v) => !v)} title="Edit profile" className="group relative">
           <Avatar wallet={identity} avatar={avatar} size={44} className="ring-2 ring-[#0052ff]/40 transition-transform group-hover:scale-105" />
-          <span className="absolute -bottom-1 -right-1 grid h-4 w-4 place-items-center rounded-full bg-[#0052ff] text-[9px] text-white">✎</span>
+          {handle && <span className="absolute -bottom-1 -right-1 grid h-4 w-4 place-items-center rounded-full bg-[#0052ff] text-[9px] text-white">✓</span>}
         </button>
         <div className="min-w-0 flex-1">
-          {/* profile editor */}
           {showProfile && (
             <div className="pop-in mb-3 rounded-xl border border-[#0052ff]/40 bg-[#0c1531] p-3">
               <div className="text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Your @handle</div>
@@ -219,7 +271,7 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
                 <button onClick={saveProfile} disabled={savingProfile} className="btn-gem px-4 py-1.5 text-[12px] font-bold disabled:opacity-50">
                   {savingProfile ? 'Saving…' : 'Save profile'}
                 </button>
-                <button onClick={() => { setAvatar(''); setHandle(''); saveProfile() }} className="btn-ghost px-3 py-1.5 text-[12px]">Clear</button>
+                <button onClick={() => { setAvatar(''); setHandle(''); handle.trim() && saveProfile() }} className="btn-ghost px-3 py-1.5 text-[12px]">Clear</button>
               </div>
             </div>
           )}
@@ -228,13 +280,44 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
             <span className="truncate font-mono text-[11px] text-[#b3bdd4]">{handle ? `@${handle}` : shortAddr(identity)}</span>
             <span className="shrink-0 text-[12px] font-bold text-[#45d68f]">on Base · live</span>
           </div>
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value.slice(0, 280))}
-            rows={3}
-            placeholder="Call the 100x. Flex the bag. Shill your position…"
-            className="mt-2 w-full resize-none rounded-xl border border-[#1f2740] bg-[#050a1e]/60 p-3 text-[14px] text-white placeholder-[#3a4a75] outline-none transition-colors focus:border-[#0052ff]"
-          />
+
+          <div ref={wrapRef} className="relative mt-2">
+            <textarea
+              ref={taRef}
+              value={body}
+              onChange={(e) => { setBody(e.target.value.slice(0, 280)); setCaret(e.target.selectionStart ?? 0) }}
+              onSelect={() => setCaret(taRef.current!.selectionStart ?? 0)}
+              onKeyUp={() => setCaret(taRef.current!.selectionStart ?? 0)}
+              onClick={() => setTickPos(taRef.current ? caretCoords(taRef.current) : null)}
+              onFocus={() => setTickPos(taRef.current ? caretCoords(taRef.current) : null)}
+              rows={3}
+              placeholder={'Type your call… try $ instead of a symbol to tag a token'}
+              className="w-full resize-none rounded-xl border border-[#1f2740] bg-[#050a1e]/60 p-3 text-[14px] text-white placeholder-[#3a4a75] outline-none transition-colors focus:border-[#0052ff]"
+            />
+            {showTick && tickPos && (
+              <div
+                className="drop-panel absolute z-50 w-64 overflow-hidden rounded-xl border border-[#1f2740] bg-[#0c1531] shadow-2xl"
+                style={{ left: Math.min(tickPos.x, 240), top: tickPos.y + 10 }}
+              >
+                <div className="border-b border-[#1f2740] px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-[#3a4a75]">Tag a token</div>
+                {matches.map((t) => (
+                  <button
+                    key={t.address}
+                    onMouseDown={(e) => { e.preventDefault(); pickToken(t) }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[#1f2740]"
+                  >
+                    <CoinGlyph src={t.imageUrl || t.logoUrl} symbol={t.symbol} size={24} ring={false} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12px] font-bold text-[#0052ff]">${t.symbol}</span>
+                      <span className="block truncate text-[10px] text-[#b3bdd4]">{t.name}</span>
+                    </span>
+                    <span className="shrink-0 text-[10px] font-semibold text-[#b3bdd4]">{fmtUsd(t.marketcapUsd)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="mt-2 flex items-center justify-between gap-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               {tag && (
@@ -244,33 +327,7 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
                   ✕
                 </button>
               )}
-              <div ref={boxRef} className="relative">
-                <input
-                  value={query}
-                  onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
-                  onFocus={() => setOpen(true)}
-                  placeholder={tag ? '' : '+ tag token'}
-                  className="w-36 appearance-none rounded-full border border-[#1f2740] bg-[#0d142b] px-3 py-1.5 text-[12px] font-semibold text-white placeholder-[#b3bdd4] outline-none transition-colors focus:border-[#0052ff]"
-                />
-                {open && matches.length > 0 && (
-                  <div className="drop-panel absolute left-0 top-full z-50 mt-1.5 w-64 overflow-hidden rounded-xl border border-[#1f2740] bg-[#0c1531] shadow-2xl">
-                    {matches.map((t) => (
-                      <button
-                        key={t.address}
-                        onClick={() => { setTag(t); setQuery(''); setOpen(false) }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[#1f2740]"
-                      >
-                        <CoinGlyph src={t.imageUrl || t.logoUrl} symbol={t.symbol} size={24} ring={false} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[12px] font-bold text-[#0052ff]">${t.symbol}</span>
-                          <span className="block truncate text-[10px] text-[#b3bdd4]">{t.name}</span>
-                        </span>
-                        <span className="shrink-0 text-[10px] font-semibold text-[#b3bdd4]">{fmtUsd(t.marketcapUsd)}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <span className="text-[10px] text-[#3a4a75]">$ = tag token</span>
             </div>
             <span className={`shrink-0 text-[11px] font-semibold ${body.length >= 240 ? 'text-[#ea6055]' : 'text-[#3a4a75]'}`}>{body.length}/280</span>
           </div>
@@ -303,7 +360,7 @@ function UserPostCard({ post, onLike, delay = 0 }: { post: UserPost; onLike: (id
             {post.handle ? (
               <span className="truncate text-[13px] font-bold text-white">@{post.handle}</span>
             ) : (
-              <CopyAddr addr={post.author} short={6} className="text-[13px] font-semibold text-white/90" />
+              <span className="group"><CopyAddr addr={post.author} short={6} className="text-[13px] font-semibold text-white/90" /></span>
             )}
           </div>
           <div className="text-[11px] text-[#b3bdd4]">{relativeTime(post.created_at)} · {shortAddr(post.author, 8)}</div>
@@ -325,6 +382,171 @@ function UserPostCard({ post, onLike, delay = 0 }: { post: UserPost; onLike: (id
         </button>
       </div>
     </article>
+  )
+}
+
+// ─── On-chain trade card (used in Portfolio trades stream) ─────────────────
+
+function TradeCard({ post, delay = 0 }: { post: Post; delay?: number }) {
+  const buy = post.side === 'buy'
+  const up = (post.change24hPct ?? 0) >= 0
+  const actionColor = buy ? 'text-[#45d68f]' : 'text-[#ea6055]'
+  return (
+    <article className="card overflow-hidden p-4 fade-up" style={{ animationDelay: `${delay}ms` }}>
+      <div className="flex items-center gap-3">
+        <CoinGlyph src={post.tokenImageUrl} symbol={post.tokenSymbol} size={40} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <CopyAddr addr={post.trader} short={6} className="text-[12px] font-medium text-white" />
+            {post.streak && post.streak > 2 && <span className="shrink-0 text-[10px] font-bold text-[#f5c847]">🔥 {post.streak}</span>}
+          </div>
+          <div className="text-[11px] text-[#b3bdd4]">
+            <span className={actionColor}>{buy ? 'bought' : 'sold'} {fmtUsd(post.volumeUsd)}</span>
+            <span> of </span>
+            <span className="font-bold text-[#0052ff]">${post.tokenSymbol}</span>
+            <span> · {relativeTime(post.createdAt)}</span>
+          </div>
+        </div>
+        {post.spark && post.spark.length >= 2 && <div className="hidden shrink-0 sm:block"><Sparkline data={post.spark} up={up} w={110} h={30} /></div>}
+      </div>
+      <div className="mt-3 flex items-center justify-between text-[11px] text-[#b3bdd4]">
+        <a href={`https://basescan.org/address/${post.trader}`} target="_blank" rel="noreferrer" className="font-mono transition-colors hover:text-white">basescan</a>
+        <a href={`https://basescan.org/tx/${post.txn}`} target="_blank" rel="noreferrer" className="font-mono transition-colors hover:text-white">tx {post.txn.slice(0, 8)}…</a>
+      </div>
+    </article>
+  )
+}
+
+// ─── P&L card builder ──────────────────────────────────────────────────────
+
+function PnlBuilder({ identity, tokens, onPosted }: { identity: string; tokens: Token[]; onPosted: () => void }) {
+  const [tag, setTag] = useState<Token | null>(null)
+  const [entry, setEntry] = useState('')
+  const [exit, setExit] = useState('')
+  const [size, setSize] = useState('')
+  const [posting, setPosting] = useState(false)
+
+  const entryN = parseFloat(entry)
+  const exitN = parseFloat(exit)
+  const sizeN = parseFloat(size)
+  const valid = !!tag && entryN > 0 && exitN > 0 && sizeN > 0
+  const pnlPct = valid ? ((exitN - entryN) / entryN) * 100 : 0
+  const pnlUsd = valid ? (exitN - entryN) * (sizeN / entryN) : 0
+  const up = pnlPct >= 0
+
+  async function postCard() {
+    if (!valid || posting) return
+    setPosting(true)
+    try {
+      const dir = up ? 'flipped' : 'got rekt on'
+      const line = `I ${dir} $${tag!.symbol} ${up ? '+' : ''}${pnlPct.toFixed(1)}% ${up ? '📈' : '📉'} on Base`
+      await createPost({ author: identity, body: line, tokenSymbol: tag!.symbol, tokenImage: tag!.imageUrl })
+      setEntry(''); setExit(''); setSize(''); setTag(null)
+      onPosted()
+    } catch (e: any) {
+      console.error(e)
+    } finally {
+      setPosting(false)
+    }
+  }
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="border-b border-[#1f2740] px-5 py-4">
+        <h2 className="font-display text-lg font-black text-white">Build your P&L card</h2>
+        <p className="mt-0.5 text-[12px] text-[#b3bdd4]">Pick a token, plug in your fills, and flex or cope. Post it to the wall.</p>
+      </div>
+
+      <div className="grid gap-4 p-5 md:grid-cols-2">
+        {/* inputs */}
+        <div className="space-y-3">
+          {!tag && (
+            <select
+              value=""
+              onChange={(e) => setTag(tokens.find((t) => t.address === e.target.value) || null)}
+              className="w-full appearance-none rounded-xl border border-[#1f2740] bg-[#0d142b] px-3 py-2.5 text-[13px] font-semibold text-white outline-none focus:border-[#0052ff]"
+            >
+              <option value="">Select token…</option>
+              {tokens.map((t) => (
+                <option key={t.address} value={t.address}>${t.symbol} · {t.name}</option>
+              ))}
+            </select>
+          )}
+          {tag && (
+            <div className="flex items-center justify-between rounded-xl border border-[#0052ff]/40 bg-[#0d142b] px-3 py-2.5">
+              <span className="flex items-center gap-2">
+                <CoinGlyph src={tag.imageUrl || tag.logoUrl} symbol={tag.symbol} size={24} ring={false} />
+                <span className="font-bold text-[#0052ff]">${tag.symbol}</span>
+              </span>
+              <button onClick={() => setTag(null)} className="text-[12px] text-[#b3bdd4] hover:text-white">✕ change</button>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Entry</span>
+              <input value={entry} onChange={(e) => setEntry(e.target.value)} placeholder="0.000023" inputMode="decimal" className="mt-1 w-full rounded-xl border border-[#1f2740] bg-[#050a1e]/60 px-3 py-2.5 text-[13px] text-white placeholder-[#3a4a75] outline-none focus:border-[#0052ff]" />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Exit</span>
+              <input value={exit} onChange={(e) => setExit(e.target.value)} placeholder="0.000034" inputMode="decimal" className="mt-1 w-full rounded-xl border border-[#1f2740] bg-[#050a1e]/60 px-3 py-2.5 text-[13px] text-white placeholder-[#3a4a75] outline-none focus:border-[#0052ff]" />
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Position size (USDC)</span>
+            <input value={size} onChange={(e) => setSize(e.target.value)} placeholder="500" inputMode="decimal" className="mt-1 w-full rounded-xl border border-[#1f2740] bg-[#050a1e]/60 px-3 py-2.5 text-[13px] text-white placeholder-[#3a4a75] outline-none focus:border-[#0052ff]" />
+          </label>
+          <button onClick={postCard} disabled={!valid || posting} className="btn-gem shimmer-btn w-full px-4 py-2.5 text-[13px] font-bold disabled:opacity-40">
+            {posting ? 'Posting…' : 'Post P&L card 🚀'}
+          </button>
+        </div>
+
+        {/* live preview */}
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Preview</div>
+          <div className={`mt-1.5 relative overflow-hidden rounded-2xl border p-5 ${up ? 'border-[#45d68f]/50' : 'border-[#ea6055]/50'} ${up ? 'bg-gradient-to-br from-[#0c2a1f] to-[#0c1531]' : 'bg-gradient-to-br from-[#2a1010] to-[#0c1531]'}`}>
+            <div className="absolute right-3 top-3"><img src="/bstonk.webp" alt="" className="h-7 w-7 opacity-70" /></div>
+            {tag ? (
+              <CoinGlyph src={tag.imageUrl || tag.logoUrl} symbol={tag.symbol} size={48} />
+            ) : (
+              <div className="grid h-12 w-12 place-items-center rounded-full bg-[#0d142b] text-[10px] text-[#3a4a75]">?</div>
+            )}
+            <div className="mt-3 text-[12px] text-[#b3bdd4]">{tag ? tag.name : 'token'}</div>
+            <div className={`font-display text-4xl font-black ${up ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{up ? '▲' : '▼'} {valid ? Math.abs(pnlPct).toFixed(1) : '0.0'}%</div>
+            <div className={`mt-1 font-display text-xl font-bold ${up ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{up ? '+' : ''}{valid ? pnlUsd.toFixed(2) : '0.00'} USDC</div>
+            <div className="mt-4 flex items-center justify-between text-[10px] text-[#b3bdd4]">
+              <span className="font-mono">{shortAddr(identity)}</span>
+              <span>BASESTONK · DEGEN TERMINAL</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Portfolio view: your trades + P&L cards ───────────────────────────────
+
+function PortfolioView({ identity, tokens, posts, onPosted }: { identity: string; tokens: Token[]; posts: Post[]; onPosted: () => void }) {
+  const stream = useMemo(() => {
+    const mine = posts.filter((p) => p.trader === identity)
+    return (mine.length ? mine : posts).slice(0, 30)
+  }, [posts, identity])
+  return (
+    <div className="fade-in flex gap-6">
+      <section className="min-w-0 flex-1 space-y-6">
+        <PnlBuilder identity={identity} tokens={tokens} onPosted={onPosted} />
+        <div>
+          <h2 className="mb-2 px-1 font-display text-lg font-black text-white">Recent trades</h2>
+          <div className="space-y-3">
+            {stream.map((p, i) => <TradeCard key={p.id} post={p} delay={i * 30} />)}
+          </div>
+        </div>
+      </section>
+      <aside className="hidden w-72 shrink-0 flex-col gap-6 self-start xl:flex">
+        <TrendingStonks tokens={tokens} />
+        <TopDegens rows={[]} />
+      </aside>
+    </div>
   )
 }
 
@@ -362,7 +584,7 @@ function TopDegens({ rows }: { rows: LeaderRow[] }) {
     <section>
       <h3 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Top degens this hour</h3>
       <div className="card overflow-hidden">
-        {rows.slice(0, 8).map((r, i) => {
+        {rows.map((r, i) => {
           const pct = r.volumeUsd > 0 ? (r.volumeUsd / Math.max(rows[0]?.volumeUsd || 1, r.volumeUsd)) * 100 : 0
           const medal = i === 0 ? 'text-[#f5c847]' : i === 1 ? 'text-[#b3bdd4]' : i === 2 ? 'text-[#d9904f]' : 'text-[#3a4a75]'
           return (
@@ -428,7 +650,7 @@ function TokenCard({ t }: { t: Token }) {
   )
 }
 
-// ─── Trending view: BaseStonk token grid ───────────────────────────────────
+// ─── Trending view ─────────────────────────────────────────────────────────
 
 function TrendingView({ tokens }: { tokens: Token[] }) {
   return (
@@ -441,13 +663,13 @@ function TrendingView({ tokens }: { tokens: Token[] }) {
         <div className="btn-ghost hidden px-3 py-1.5 text-[12px] sm:block">🔍 Search tokens…</div>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {tokens.map((t, i) => <span key={t.address} style={{ animationDelay: `${i * 40}ms` }}><TokenCard t={t} /></span>)}
+        {tokens.map((t, i) => <div key={t.address} style={{ animationDelay: `${i * 40}ms` }}><TokenCard t={t} /></div>)}
       </div>
     </div>
   )
 }
 
-// ─── Degens view: leaderboard ──────────────────────────────────────────────
+// ─── Degens view ───────────────────────────────────────────────────────────
 
 function DegensView({ rows }: { rows: LeaderRow[] }) {
   const medal = (i: number) => i === 0 ? 'text-[#f5c847]' : i === 1 ? 'text-[#b3bdd4]' : i === 2 ? 'text-[#d9904f]' : 'text-[#3a4a75]'
@@ -461,7 +683,7 @@ function DegensView({ rows }: { rows: LeaderRow[] }) {
         {rows.map((r, i) => {
           const pct = r.volumeUsd > 0 ? (r.volumeUsd / Math.max(rows[0]?.volumeUsd || 1, r.volumeUsd)) * 100 : 0
           return (
-            <div key={r.trader} className="flex items-center gap-3 border-b border-[#1f2740] px-4 py-3 last:border-0 transition-colors hover:bg-[#0d142b]/50 fade-up" style={{ animationDelay: `${i * 35}ms` }}>
+            <div key={r.trader} className="group/deg flex items-center gap-3 border-b border-[#1f2740] px-4 py-3 last:border-0 transition-colors hover:bg-[#0d142b]/50 fade-up" style={{ animationDelay: `${i * 35}ms` }}>
               <span className={`w-6 shrink-0 text-center font-display text-[14px] font-bold ${medal(i)}`}>{i + 1}</span>
               <Avatar wallet={r.trader} size={36} />
               <div className="min-w-0 flex-1">
@@ -476,49 +698,6 @@ function DegensView({ rows }: { rows: LeaderRow[] }) {
                 <div className="text-[10px] text-[#f5c847]">score {fmtNum(r.score)}</div>
               </div>
             </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-// ─── P&L wall: flex posts ──────────────────────────────────────────────────
-
-function PnlWall({ posts }: { posts: Post[] }) {
-  const flex = useMemo(() => posts.filter((p) => p.kind === 'flex').slice(0, 24), [posts])
-  if (flex.length === 0) return null
-  return (
-    <div className="fade-in">
-      <div className="mb-5 px-1">
-        <h1 className="font-display text-3xl font-black tracking-tight text-white">P&L <span className="text-[#0052ff]">wall</span></h1>
-        <p className="mt-1 text-[13px] font-medium text-[#b3bdd4]">Degens flexing their bags. Bragging is a feature.</p>
-      </div>
-      <div className="space-y-4">
-        {flex.map((p, i) => {
-          const up = (p.pnlPct ?? 0) >= 0
-          const actionColor = up ? 'text-[#45d68f]' : 'text-[#ea6055]'
-          return (
-            <article key={p.id} className="card overflow-hidden p-5 fade-up" style={{ animationDelay: `${i * 45}ms` }}>
-              <div className="flex items-center gap-3">
-                <CoinGlyph src={p.tokenImageUrl} symbol={p.tokenSymbol} size={52} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <CopyAddr addr={p.trader} short={6} className="text-[14px] font-semibold text-white" />
-                    {p.streak && p.streak > 2 && <span className="text-[11px] font-bold text-[#f5c847]">🔥 {p.streak}</span>}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-[#b3bdd4]">
-                    <span className="font-bold text-[#0052ff]">${p.tokenSymbol}</span>
-                    <span> · {relativeTime(p.createdAt)}</span>
-                  </div>
-                </div>
-                {p.spark && p.spark.length >= 2 && <div className="hidden shrink-0 sm:block"><Sparkline data={p.spark} up={up} w={150} h={38} /></div>}
-                <div className="shrink-0 text-right">
-                  <div className={`font-display text-2xl font-black ${actionColor} ticker-anim`}>{up ? '▲' : '▼'} {Math.abs(p.pnlPct ?? 0)}%</div>
-                  <div className="text-[11px] text-[#b3bdd4]">P&L on {fmtUsd(p.volumeUsd)}</div>
-                </div>
-              </div>
-            </article>
           )
         })}
       </div>
@@ -553,31 +732,27 @@ export default function App() {
     }
   }, [tokens, posts])
 
-  async function loadAll() {
-    try {
-      const [tokRes, feedRes, leadRes, postsRes] = await Promise.all([
-        fetchTokens(60, 'trending'),
-        fetchFeed(40),
-        fetchLeaderboard(20),
-        fetchPosts(50).catch(() => [] as UserPost[]),
-      ])
-      setTokens(tokRes.tokens)
-      setFeed(feedRes)
-      setLeader(leadRes.rows)
-      setUserPosts(Array.isArray(postsRes) ? postsRes : [])
-      setErr(null)
-    } catch (e: any) {
-      setErr(e.message || 'Failed to load data')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const loadAll = useCallback(async () => {
+    const [tokRes, feedRes, leadRes, postsRes] = await Promise.all([
+      fetchTokens(60, 'trending').catch(() => null),
+      fetchFeed(40).catch(() => null),
+      fetchLeaderboard(20).catch(() => null),
+      fetchPosts(50).catch(() => null),
+    ])
+    if (tokRes) setTokens(tokRes.tokens)
+    if (feedRes) setFeed(feedRes)
+    if (leadRes) setLeader(leadRes.rows)
+    if (Array.isArray(postsRes)) setUserPosts(postsRes)
+    setErr(null)
+    setLoading(false)
+  }, [])
 
-  useEffect(() => { loadAll() }, [])
+  useEffect(() => { loadAll() }, [loadAll])
   useEffect(() => {
     const t = setInterval(async () => {
-      try { setFeed(await fetchFeed(40)) } catch { /* keep old */ }
-      try { setUserPosts(await fetchPosts(50)) } catch { /* keep old */ }
+      const p = await Promise.all([fetchFeed(40).catch(() => null), fetchPosts(50).catch(() => null)])
+      if (p[0]) setFeed(p[0])
+      if (Array.isArray(p[1])) setUserPosts(p[1])
     }, 15000)
     return () => clearInterval(t)
   }, [])
@@ -649,7 +824,7 @@ export default function App() {
       <main className="relative z-10 mx-auto max-w-7xl gap-6 px-4 py-6">
         {view === 'trending' && <TrendingView tokens={tokens} />}
         {view === 'degens' && <DegensView rows={leader} />}
-        {view === 'plwall' && <PnlWall posts={posts} />}
+        {view === 'portfolio' && <PortfolioView identity={identity} tokens={tokens} posts={posts} onPosted={loadAll} />}
 
         {view === 'home' && (
           <div className="flex gap-6">
@@ -679,7 +854,7 @@ export default function App() {
                   <div className="card p-8 text-center pop-in">
                     <div className="text-2xl">🗣️</div>
                     <div className="mt-2 text-[14px] font-semibold text-white">No posts yet — be the first to speak.</div>
-                    <div className="mt-1 text-[12px] text-[#b3bdd4]">Call a 100x, flex a bag, or shill a BaseStonk token above.</div>
+                    <div className="mt-1 text-[12px] text-[#b3bdd4]">Call a 100x, flex a bag, or shill a BaseStonk token.</div>
                   </div>
                 )}
                 {userPosts.map((p, i) => (
