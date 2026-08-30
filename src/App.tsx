@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   fetchTokens, fetchFeed, fetchLeaderboard, fetchPosts, createPost, likePost,
   fetchAccount, saveAccount, fetchPositions,
+  fetchFollows, addFollow, removeFollow,
   fmtUsd, fmtNum,
 } from './lib/api'
-import type { Token, FeedItem, LeaderRow, UserPost, Position } from './lib/api'
+import type { Token, FeedItem, LeaderRow, UserPost, Position, Account } from './lib/api'
 import { derivePosts, avatarGradient, initials, relativeTime, shortAddr } from './lib/social'
 import type { Post } from './lib/social'
 
-type View = 'home' | 'trending' | 'degens' | 'portfolio'
+type View = 'home' | 'trending' | 'degens' | 'portfolio' | 'profile'
 
 const NAV: { key: View; label: string }[] = [
   { key: 'home', label: 'Home' },
@@ -36,6 +37,87 @@ function isImgAvatar(a?: string | null): boolean {
   return !!a && (a.startsWith('data:image') || a.startsWith('http'))
 }
 
+// ─── Interactive photo cropper (pan + zoom, bakes a 96px avatar) ───────────
+
+function CropPicker({ file, onDone, onCancel }: { file: File; onDone: (dataUrl: string) => void; onCancel: () => void }) {
+  const [img, setImg] = useState<{ url: string; el: HTMLImageElement; w: number; h: number } | null>(null)
+  const [zoom, setZoom] = useState(1.3)
+  const [off, setOff] = useState({ x: 0, y: 0 })
+  const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
+  const box = 224
+
+  useEffect(() => {
+    const url = URL.createObjectURL(file)
+    const el = new Image()
+    el.onload = () => {
+      setImg({ url, el, w: el.naturalWidth, h: el.naturalHeight })
+      setOff({ x: 0, y: 0 })
+      setZoom(1.3)
+    }
+    el.src = url
+    return () => URL.revokeObjectURL(url)
+  }, [file])
+
+  if (!img) return <div className="py-6 text-center text-[12px] text-[#3a4a75]">Loading photo…</div>
+  const imgEl = img
+
+  const fit = Math.max(box / img.w, box / img.h)
+  const scale = fit * zoom
+  const dw = img.w * scale
+  const dh = img.h * scale
+  const maxX = Math.max(0, (dw - box) / 2)
+  const maxY = Math.max(0, (dh - box) / 2)
+  const ox = Math.min(maxX, Math.max(-maxX, off.x))
+  const oy = Math.min(maxY, Math.max(-maxY, off.y))
+
+  function bake() {
+    const c = document.createElement('canvas')
+    c.width = 96
+    c.height = 96
+    const ctx = c.getContext('2d')
+    if (!ctx) return
+    const sx = (box / 2 - dw / 2 + ox) / scale * -1
+    const sy = (box / 2 - dh / 2 + oy) / scale * -1
+    const ssize = box / scale
+    ctx.drawImage(imgEl.el, Math.max(0, sx), Math.max(0, sy), Math.min(ssize, imgEl.w - Math.max(0, sx)), Math.min(ssize, imgEl.h - Math.max(0, sy)), 0, 0, 96, 96)
+    onDone(c.toDataURL('image/jpeg', 0.85))
+  }
+
+  return (
+    <div className="rounded-xl border border-[#0052ff]/40 bg-[#050a1e] p-3">
+      <div className="text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Crop your photo</div>
+      <div
+        className="relative mt-2 touch-none select-none overflow-hidden rounded-2xl border border-[#1f2740]"
+        style={{ width: box, height: box, cursor: 'grab' }}
+        onPointerDown={(e) => { (e.target as Element).setPointerCapture?.(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, ox: off.x, oy: off.y } }}
+        onPointerMove={(e) => {
+          if (!drag.current) return
+          setOff({ x: drag.current.ox + e.clientX - drag.current.x, y: drag.current.oy + e.clientY - drag.current.y })
+        }}
+        onPointerUp={() => { drag.current = null }}
+        onPointerLeave={() => { drag.current = null }}
+      >
+        <img
+          src={img.url}
+          alt="" draggable={false}
+          className="absolute max-w-none"
+          style={{ width: dw, height: dh, left: box / 2 - dw / 2 + ox, top: box / 2 - dh / 2 + oy }}
+        />
+        <div className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-white/20" />
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <span className="text-[10px] font-bold uppercase text-[#b3bdd4]">Zoom</span>
+        <input type="range" min={1} max={4} step={0.05} value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} className="flex-1 accent-[#0052ff]" />
+        <span className="font-mono text-[10px] text-[#b3bdd4]">{zoom.toFixed(1)}×</span>
+      </div>
+      <div className="mt-2.5 flex items-center gap-2">
+        <button onClick={bake} className="btn-gem px-4 py-1.5 text-[12px] font-bold">Use this photo</button>
+        <button onClick={onCancel} className="btn-ghost px-3 py-1.5 text-[12px]">Cancel</button>
+      </div>
+    </div>
+  )
+}
+
 function Avatar({ wallet, avatar, size = 40, className = '' }: { wallet: string; avatar?: string | null; size?: number; className?: string }) {
   if (isImgAvatar(avatar)) {
     return (
@@ -59,7 +141,7 @@ function Avatar({ wallet, avatar, size = 40, className = '' }: { wallet: string;
 
 // ─── Copy-to-clipboard address ─────────────────────────────────────────────
 
-function CopyAddr({ addr, short, className = '' }: { addr: string; short?: number; className?: string }) {
+function CopyAddr({ addr, short, iconOnly, className = '' }: { addr: string; short?: number; iconOnly?: boolean; className?: string }) {
   const [copied, setCopied] = useState(false)
   const text = short ? shortAddr(addr, short) : shortAddr(addr)
   return (
@@ -79,7 +161,7 @@ function CopyAddr({ addr, short, className = '' }: { addr: string; short?: numbe
         <span className="rounded bg-[#45d68f]/15 px-1.5 py-0.5 text-[10px] font-bold text-[#45d68f]">copied ✓</span>
       ) : (
         <>
-          <span>{text}</span>
+          {!iconOnly && <span>{text}</span>}
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="opacity-50 group-hover/deg:opacity-100">
             <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2" />
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="2" />
@@ -141,26 +223,32 @@ function caretCoords(textarea: HTMLTextAreaElement): { x: number; y: number } {
   const pos = textarea.selectionStart ?? textarea.value.length
   const cs = getComputedStyle(textarea)
   const div = document.createElement('div')
-  for (const p of ['boxSizing', 'width', 'letterSpacing', 'lineHeight', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth', 'fontFamily', 'fontSize', 'fontWeight', 'tabSize'] as const) {
-    div.style[p] = cs[p] as any
+  for (const p of ['boxSizing', 'letterSpacing', 'lineHeight', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth', 'fontFamily', 'fontSize', 'fontWeight', 'wordSpacing', 'tabSize'] as const) {
+    div.style[p] = cs[p]
   }
+  const tr = textarea.getBoundingClientRect()
   div.style.position = 'absolute'
   div.style.whiteSpace = 'pre-wrap'
   div.style.wordBreak = 'break-word'
   div.style.visibility = 'hidden'
-  div.style.top = '0px'
-  div.style.left = '-9999px'
-  const a = document.createElement('span')
-  const b = document.createElement('span')
-  a.textContent = textarea.value.slice(0, pos)
-  b.textContent = textarea.value.slice(pos) || '.'
-  div.appendChild(a)
-  div.appendChild(b)
+  div.style.pointerEvents = 'none'
+  div.style.textAlign = 'left'
+  div.style.left = `${tr.left}px`
+  div.style.top = `${tr.top}px`
+  div.style.width = `${textarea.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)}px`
+  const caret = document.createElement('span')
+  caret.textContent = textarea.value.slice(0, pos)
+  const marker = document.createElement('span')
+  marker.textContent = textarea.value.slice(pos) || ' '
+  div.appendChild(caret)
+  div.appendChild(marker)
   document.body.appendChild(div)
-  const bb = b.getBoundingClientRect()
-  const tb = textarea.getBoundingClientRect()
+  const mr = marker.getBoundingClientRect()
   document.body.removeChild(div)
-  return { x: bb.left - tb.left, y: bb.top - tb.top }
+  return {
+    x: Math.max(0, mr.left - tr.left - parseFloat(cs.paddingLeft)),
+    y: Math.max(0, mr.top - tr.top - parseFloat(cs.paddingTop) - (cs.boxSizing === 'border-box' ? parseFloat(cs.borderTopWidth) : 0)),
+  }
 }
 
 // Find the active "$tick" being typed right before the caret.
@@ -173,11 +261,11 @@ function probeTicker(body: string, caret: number): { start: number; query: strin
 
 // ─── Composer: actually post, with inline $ ticker autocomplete ────────────
 
-function Composer({ identity, allStonks, tokens, onPosted }: { identity: string; allStonks: Token[]; tokens: Token[]; onPosted: () => void }) {
+function Composer({ identity, allStonks, tokens, onPosted, onOpenProfile }: { identity: string; allStonks: Token[]; tokens: Token[]; onPosted: () => void; onOpenProfile: (wallet: string) => void }) {
   const [body, setBody] = useState('')
   const [tag, setTag] = useState<Token | null>(null)
   const [caret, setCaret] = useState(0)
-  const [tickPos, setTickPos] = useState<{ x: number; y: number } | null>(null)
+  const [tickPos, setTickPos] = useState<{ x: number; y: number; line?: number; flip?: boolean } | null>(null)
   const [picked, setPicked] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -189,6 +277,7 @@ function Composer({ identity, allStonks, tokens, onPosted }: { identity: string;
   const taRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const escRef = useRef(false)
+  const [cropFile, setCropFile] = useState<File | null>(null)
 
   const ticker = useMemo(() => probeTicker(body, caret), [body, caret])
   const matches = useMemo(() => {
@@ -207,8 +296,12 @@ function Composer({ identity, allStonks, tokens, onPosted }: { identity: string;
   function refreshCaret() {
     const r = taRef.current
     if (!r) return
+    const c = caretCoords(r)
+    const taRect = r.getBoundingClientRect()
+    const line = parseFloat(getComputedStyle(r).lineHeight) || 22
+    const spaceBelow = window.innerHeight - taRect.bottom
     setCaret(r.selectionStart ?? r.value.length)
-    setTickPos(caretCoords(r))
+    setTickPos({ ...c, line, flip: c.y + line + 320 > spaceBelow })
   }
 
   useEffect(() => {
@@ -275,29 +368,7 @@ function Composer({ identity, allStonks, tokens, onPosted }: { identity: string;
     const f = e.target.files?.[0]
     e.target.value = ''
     if (!f || !/^image\//.test(f.type)) return
-    const url = URL.createObjectURL(f)
-    const img = new Image()
-    img.onload = () => {
-      try {
-        const s = 96
-        const c = document.createElement('canvas')
-        c.width = s
-        c.height = s
-        const ctx = c.getContext('2d')
-        if (!ctx) return
-        ctx.fillStyle = '#050a1e'
-        ctx.fillRect(0, 0, s, s)
-        const r = Math.min(img.width / s, img.height / s)
-        const sw = img.width / r
-        const sh = img.height / r
-        ctx.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, 0, 0, s, s)
-        setAvatar(c.toDataURL('image/jpeg', 0.82))
-      } finally {
-        URL.revokeObjectURL(url)
-      }
-    }
-    img.onerror = () => URL.revokeObjectURL(url)
-    img.src = url
+    setCropFile(f)
   }
 
   return (
@@ -321,11 +392,16 @@ function Composer({ identity, allStonks, tokens, onPosted }: { identity: string;
               <div className="mt-1.5 flex items-center gap-3">
                 <Avatar wallet={identity} avatar={avatar} size={52} className="ring-2 ring-[#0052ff]/40" />
                 <div className="flex flex-col gap-1.5">
-                  <button onClick={() => fileRef.current?.click()} className="btn-ghost px-3 py-1.5 text-[12px] font-semibold">📷 Upload photo</button>
-                  <button onClick={() => { setAvatar(''); setHandle(''); saveProfile() }} className="px-3 py-1 text-[11px] text-[#3a4a75] transition-colors hover:text-[#ea6055]">remove photo</button>
+                  <button onClick={() => fileRef.current?.click()} className="btn-ghost px-3 py-1.5 text-[12px] font-semibold">📷 {isImgAvatar(avatar) ? 'Change photo' : 'Upload photo'}</button>
+                  <button onClick={() => { setAvatar(''); setCropFile(null); setHandle(''); saveProfile() }} className="px-3 py-1 text-[11px] text-[#3a4a75] transition-colors hover:text-[#ea6055]">remove photo</button>
                 </div>
               </div>
               <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickFile} />
+              {cropFile && (
+                <div className="mt-3 grid place-items-center">
+                  <CropPicker file={cropFile} onDone={(d) => { setAvatar(d); setCropFile(null) }} onCancel={() => setCropFile(null)} />
+                </div>
+              )}
               <div className="mt-3 text-[10px] font-bold uppercase tracking-wider text-[#3a4a75]">or pick an emoji</div>
               <div className="mt-1.5 flex flex-wrap gap-1.5">
                 {AVATARS.map((a) => (
@@ -347,7 +423,7 @@ function Composer({ identity, allStonks, tokens, onPosted }: { identity: string;
           )}
 
           <div className="flex items-baseline justify-between gap-2">
-            <span className="truncate font-mono text-[11px] text-[#b3bdd4]">{handle ? `@${handle}` : shortAddr(identity)}</span>
+            <button onClick={() => { setShowProfile(false); onOpenProfile(identity) }} title="View your profile" className="truncate font-mono text-[11px] text-[#b3bdd4] transition-colors hover:text-white">{handle ? `@${handle}` : shortAddr(identity)}</button>
             <span className="shrink-0 text-[12px] font-bold text-[#45d68f]">on Base · live</span>
           </div>
 
@@ -357,8 +433,7 @@ function Composer({ identity, allStonks, tokens, onPosted }: { identity: string;
               value={body}
               onChange={(e) => {
                 setBody(e.target.value.slice(0, 280))
-                setCaret((sel) => (e.target.selectionStart ?? sel))
-                setTickPos(caretCoords(taRef.current!))
+                refreshCaret()
               }}
               onSelect={refreshCaret}
               onKeyUp={() => { if (escRef.current) { escRef.current = false; return } refreshCaret() }}
@@ -378,7 +453,10 @@ function Composer({ identity, allStonks, tokens, onPosted }: { identity: string;
             {showTick && tickPos && (
               <div
                 className="drop-panel absolute z-50 w-64 overflow-hidden rounded-xl border border-[#1f2740] bg-[#0c1531] shadow-2xl"
-                style={{ left: Math.min(tickPos.x, 240), top: tickPos.y + 10 }}
+                style={{
+                  left: Math.min(tickPos.x, Math.max(8, window.innerWidth - 272)),
+                  top: tickPos.flip ? Math.max(0, tickPos.y - 330) : tickPos.y + (tickPos.line || 22),
+                }}
               >
                 <div className="border-b border-[#1f2740] px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-[#3a4a75]">Tag a token</div>
                 {matches.map((t) => (
@@ -430,21 +508,23 @@ function Composer({ identity, allStonks, tokens, onPosted }: { identity: string;
 
 // ─── User post card (social) ───────────────────────────────────────────────
 
-function UserPostCard({ post, onLike, delay = 0 }: { post: UserPost; onLike: (id: number) => void; delay?: number }) {
+function UserPostCard({ post, onLike, onOpen, delay = 0 }: { post: UserPost; onLike: (id: number) => void; onOpen?: (wallet: string) => void; delay?: number }) {
   const [liked, setLiked] = useState(false)
   return (
     <article className="card p-4 fade-up" style={{ animationDelay: `${delay}ms` }}>
       <div className="flex items-center gap-3">
-        <Avatar wallet={post.author} avatar={post.avatar} size={40} />
+        <button onClick={() => onOpen?.(post.author)} title={`Open ${post.author}`} className="shrink-0 transition-transform hover:scale-105">
+          <Avatar wallet={post.author} avatar={post.avatar} size={40} />
+        </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             {post.handle ? (
-              <span className="truncate text-[13px] font-bold text-white">@{post.handle}</span>
+              <button onClick={() => onOpen?.(post.author)} className="truncate text-[13px] font-bold text-white transition-colors hover:text-[#0052ff]">@{post.handle}</button>
             ) : (
               <span className="group"><CopyAddr addr={post.author} short={6} className="text-[13px] font-semibold text-white/90" /></span>
             )}
           </div>
-          <div className="text-[11px] text-[#b3bdd4]">{relativeTime(post.created_at)} · {shortAddr(post.author, 8)}</div>
+          <button onClick={() => onOpen?.(post.author)} className="text-[11px] text-[#b3bdd4] transition-colors hover:text-white">{relativeTime(post.created_at)} · {shortAddr(post.author, 8)}</button>
         </div>
         {post.token_symbol && (
           <div className="flex items-center gap-1.5 rounded-full border border-[#0052ff]/40 bg-[#0d142b] px-2.5 py-1 pop-in">
@@ -468,17 +548,22 @@ function UserPostCard({ post, onLike, delay = 0 }: { post: UserPost; onLike: (id
 
 // ─── On-chain trade card (used in Portfolio trades stream) ─────────────────
 
-function TradeCard({ post, delay = 0 }: { post: Post; delay?: number }) {
+function TradeCard({ post, onOpen, delay = 0 }: { post: Post; onOpen?: (wallet: string) => void; delay?: number }) {
   const buy = post.side === 'buy'
   const up = (post.change24hPct ?? 0) >= 0
   const actionColor = buy ? 'text-[#45d68f]' : 'text-[#ea6055]'
   return (
     <article className="card overflow-hidden p-4 fade-up" style={{ animationDelay: `${delay}ms` }}>
       <div className="flex items-center gap-3">
-        <CoinGlyph src={post.tokenImageUrl} symbol={post.tokenSymbol} size={40} />
+        <button onClick={() => onOpen?.(post.trader)} title={`Open ${post.trader}`} className="shrink-0 transition-transform hover:scale-105">
+          <CoinGlyph src={post.tokenImageUrl} symbol={post.tokenSymbol} size={40} />
+        </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <CopyAddr addr={post.trader} short={6} className="text-[12px] font-medium text-white" />
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => onOpen?.(post.trader)} className="truncate text-[12px] font-medium text-white transition-colors hover:text-[#0052ff]">{shortAddr(post.trader, 8)}</button>
+              <CopyAddr addr={post.trader} iconOnly className="text-[#3a4a75]" />
+            </div>
             {post.streak && post.streak > 2 && <span className="shrink-0 text-[10px] font-bold text-[#f5c847]">🔥 {post.streak}</span>}
           </div>
           <div className="text-[11px] text-[#b3bdd4]">
@@ -500,9 +585,9 @@ function TradeCard({ post, delay = 0 }: { post: Post; delay?: number }) {
 
 // ─── Portfolio view: your bag → P&L cards (zero fill-typing) ───────────────
 
-function PortfolioView({ identity, tokens, leader, posts, onPosted }: { identity: string; tokens: Token[]; leader: LeaderRow[]; posts: Post[]; onPosted: () => void }) {
+function PortfolioView({ identity, tokens, leader, posts, onPosted, onOpen }: { identity: string; tokens: Token[]; leader: LeaderRow[]; posts: Post[]; onPosted: () => void; onOpen: (wallet: string) => void }) {
   const [wallet, setWallet] = useState(identity)
-  const [bag, setBag] = useState<{ positions: Position[]; trades: FeedItem[] } | null>(null)
+  const [bag, setBag] = useState<{ positions: Position[]; trades: FeedItem[]; scanned: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [sel, setSel] = useState<Position | null>(null)
   const [posted, setPosted] = useState<string | null>(null)
@@ -511,7 +596,7 @@ function PortfolioView({ identity, tokens, leader, posts, onPosted }: { identity
     const clean = String(w || '').trim()
     if (!/^0x[0-9a-fA-F]{40}$/.test(clean)) return
     setLoading(true)
-    const r = await fetchPositions(clean).catch(() => ({ positions: [], trades: [] }))
+    const r = await fetchPositions(clean).catch(() => ({ positions: [], trades: [], scanned: 0 }))
     setBag(r)
     setSel((cur) => (r.positions.length ? r.positions.find((p) => cur?.symbol === p.symbol) || r.positions[0] : null))
     setLoading(false)
@@ -562,8 +647,14 @@ function PortfolioView({ identity, tokens, leader, posts, onPosted }: { identity
         {bag && bag.positions.length === 0 && (
           <div className="card p-8 text-center pop-in">
             <div className="text-2xl">🪝</div>
-            <div className="mt-2 text-[14px] font-semibold text-white">No BaseStonk fills on this wallet.</div>
-            <div className="mx-auto mt-1 max-w-sm text-[12px] text-[#b3bdd4]">Paste any wallet that trades the launchpad above — entry, size and exit all come from the chain, and the cards build themselves.</div>
+            <div className="mt-2 text-[14px] font-semibold text-white">
+              {bag.scanned > 0 ? 'No BaseStonk fills on this wallet.' : 'Couldn\'t reach the launchpad just now.'}
+            </div>
+            <div className="mx-auto mt-1 max-w-sm text-[12px] text-[#b3bdd4]">
+              {bag.scanned > 0
+                ? `Looked through ${fmtNum(bag.scanned)} recent trades on the launchpad and found nothing for this wallet — it needs to be actively trading BaseStonk tokens. Try any trader from the feed or the Top Degens list instead.`
+                : 'The upstream launchpad data timed out mid-scan. Hit Pull positions again — results are cached, so it tends to succeed on retry.'}
+            </div>
           </div>
         )}
 
@@ -644,14 +735,14 @@ function PortfolioView({ identity, tokens, leader, posts, onPosted }: { identity
         <div>
           <h2 className="mb-2 px-1 font-display text-lg font-black text-white">{bag && bag.trades.length ? 'Your recent trades' : 'Recent trades'}</h2>
           <div className="space-y-3">
-            {stream.map((p, i) => <TradeCard key={p.id} post={p as Post} delay={i * 30} />)}
+            {stream.map((p, i) => <TradeCard key={p.id} post={p as Post} onOpen={onOpen} delay={i * 30} />)}
           </div>
         </div>
       </section>
 
       <aside className="hidden w-72 shrink-0 flex-col gap-6 self-start xl:flex">
         <TrendingStonks tokens={tokens} />
-        <TopDegens rows={leader} />
+        <TopDegens rows={leader} onOpen={onOpen} />
       </aside>
     </div>
   )
@@ -686,7 +777,7 @@ function TrendingStonks({ tokens }: { tokens: Token[] }) {
 
 // ─── Top degens rail ───────────────────────────────────────────────────────
 
-function TopDegens({ rows }: { rows: LeaderRow[] }) {
+function TopDegens({ rows, onOpen }: { rows: LeaderRow[]; onOpen?: (wallet: string) => void }) {
   return (
     <section>
       <h3 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Top degens this hour</h3>
@@ -695,7 +786,7 @@ function TopDegens({ rows }: { rows: LeaderRow[] }) {
           const pct = r.volumeUsd > 0 ? (r.volumeUsd / Math.max(rows[0]?.volumeUsd || 1, r.volumeUsd)) * 100 : 0
           const medal = i === 0 ? 'text-[#f5c847]' : i === 1 ? 'text-[#b3bdd4]' : i === 2 ? 'text-[#d9904f]' : 'text-[#3a4a75]'
           return (
-            <div key={r.trader} className="group/deg flex items-center gap-2.5 border-b border-[#1f2740] px-3 py-2.5 last:border-0 transition-colors hover:bg-[#0d142b]/60 fade-up" style={{ animationDelay: `${i * 40}ms` }}>
+            <div key={r.trader} onClick={() => onOpen?.(r.trader)} className="group/deg flex cursor-pointer items-center gap-2.5 border-b border-[#1f2740] px-3 py-2.5 last:border-0 transition-colors hover:bg-[#0d142b]/60 fade-up" style={{ animationDelay: `${i * 40}ms` }}>
               <span className={`w-4 shrink-0 text-center font-display text-[12px] font-bold ${medal}`}>{i + 1}</span>
               <Avatar wallet={r.trader} size={28} />
               <div className="min-w-0 flex-1">
@@ -778,19 +869,19 @@ function TrendingView({ tokens }: { tokens: Token[] }) {
 
 // ─── Degens view ───────────────────────────────────────────────────────────
 
-function DegensView({ rows }: { rows: LeaderRow[] }) {
+function DegensView({ rows, onOpen }: { rows: LeaderRow[]; onOpen?: (wallet: string) => void }) {
   const medal = (i: number) => i === 0 ? 'text-[#f5c847]' : i === 1 ? 'text-[#b3bdd4]' : i === 2 ? 'text-[#d9904f]' : 'text-[#3a4a75]'
   return (
     <div className="fade-in mx-auto max-w-3xl">
       <div className="mb-5 px-1">
         <h1 className="font-display text-3xl font-black tracking-tight text-white">Top <span className="text-[#0052ff]">degens</span></h1>
-        <p className="mt-1 text-[13px] font-medium text-[#b3bdd4]">Biggest movers on BaseStonk this hour, by volume.</p>
+        <p className="mt-1 text-[13px] font-medium text-[#b3bdd4]">Biggest movers on BaseStonk this hour, by volume. Click any wallet to open their profile.</p>
       </div>
       <div className="card overflow-hidden">
         {rows.map((r, i) => {
           const pct = r.volumeUsd > 0 ? (r.volumeUsd / Math.max(rows[0]?.volumeUsd || 1, r.volumeUsd)) * 100 : 0
           return (
-            <div key={r.trader} className="group/deg flex items-center gap-3 border-b border-[#1f2740] px-4 py-3 last:border-0 transition-colors hover:bg-[#0d142b]/50 fade-up" style={{ animationDelay: `${i * 35}ms` }}>
+            <div key={r.trader} onClick={() => onOpen?.(r.trader)} className="group/deg flex cursor-pointer items-center gap-3 border-b border-[#1f2740] px-4 py-3 last:border-0 transition-colors hover:bg-[#0d142b]/50 fade-up" style={{ animationDelay: `${i * 35}ms` }}>
               <span className={`w-6 shrink-0 text-center font-display text-[14px] font-bold ${medal(i)}`}>{i + 1}</span>
               <Avatar wallet={r.trader} size={36} />
               <div className="min-w-0 flex-1">
@@ -812,10 +903,90 @@ function DegensView({ rows }: { rows: LeaderRow[] }) {
   )
 }
 
+// ─── Profile view: a wallet's posts + trades, followable ───────────────────
+
+function ProfileView({ identity, wallet, followed, userPosts, feedPosts, tokens, onFollow, onLike, onBack, onOpen }: {
+  identity: string; wallet: string; followed: boolean; userPosts: UserPost[]; feedPosts: Post[]; tokens: Token[];
+  onFollow: () => void; onLike: (id: number) => void; onBack: () => void; onOpen: (wallet: string) => void;
+}) {
+  const [acc, setAcc] = useState<Account | null>(null)
+  useEffect(() => {
+    let on = true
+    fetchAccount(wallet).then((a) => { if (on) setAcc(a) }).catch(() => null)
+    return () => { on = false }
+  }, [wallet])
+
+  const myPosts = useMemo(() => userPosts.filter((p) => p.author === wallet), [userPosts, wallet])
+  const theirTrades = useMemo(() => feedPosts.filter((p) => p.trader === wallet), [feedPosts, wallet])
+  const handle = acc?.handle || myPosts.find((p) => p.handle)?.handle || null
+  const avatar = acc?.avatar || myPosts.find((p) => p.avatar)?.avatar || ''
+  const own = wallet === identity
+
+  return (
+    <div className="fade-in flex gap-6">
+      <section className="min-w-0 flex-1 space-y-6">
+        <button onClick={onBack} className="btn-ghost px-3 py-1.5 text-[12px] font-semibold">← back to feed</button>
+
+        <div className="card p-5 pop-in">
+          <div className="flex flex-wrap items-center gap-4">
+            <Avatar wallet={wallet} avatar={avatar} size={72} className="ring-2 ring-[#0052ff]/40" />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                {handle && <span className="font-display text-xl font-black text-white">@{handle}</span>}
+                <CopyAddr addr={wallet} short={8} className="text-[12px] font-medium text-[#b3bdd4]" />
+              </div>
+              <div className="mt-1 text-[12px] text-[#b3bdd4]">
+                {myPosts.length} post{myPosts.length === 1 ? '' : 's'} · {theirTrades.length} trade{theirTrades.length === 1 ? '' : 's'} in this hour
+              </div>
+            </div>
+            {!own && (
+              <button
+                onClick={onFollow}
+                className={`px-5 py-2 text-[13px] font-bold transition-all shimmer-btn ${followed ? 'btn-ghost' : 'btn-gem'}`}
+              >
+                {followed ? 'Following ✓' : 'Follow'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <h2 className="mb-2 px-1 font-display text-lg font-black text-white">Posts</h2>
+          {myPosts.length === 0 ? (
+            <div className="card p-6 text-center text-[12px] text-[#3a4a75]">No posts yet — wallet silence.</div>
+          ) : (
+            <div className="space-y-3">
+              {myPosts.map((p, i) => <UserPostCard key={p.id} post={p} onLike={onLike} onOpen={onOpen} delay={i * 30} />)}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <h2 className="mb-2 px-1 font-display text-lg font-black text-white">Trades</h2>
+          {theirTrades.length === 0 ? (
+            <div className="card p-6 text-center text-[12px] text-[#3a4a75]">No BaseStonk trades in this hour.</div>
+          ) : (
+            <div className="space-y-3">
+              {theirTrades.slice(0, 20).map((p, i) => <TradeCard key={p.id} post={p} onOpen={onOpen} delay={i * 30} />)}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <aside className="hidden w-72 shrink-0 flex-col gap-6 self-start xl:flex">
+        <TrendingStonks tokens={tokens} />
+      </aside>
+    </div>
+  )
+}
+
 // ─── Main App ──────────────────────────────────────────────────────────────
 
 export default function App() {
   const [view, setView] = useState<View>('home')
+  const [profileWallet, setProfileWallet] = useState<string | null>(null)
+  const [following, setFollowing] = useState<Set<string>>(new Set())
+  const [feedMode, setFeedMode] = useState<'general' | 'following'>('general')
   const [tokens, setTokens] = useState<Token[]>([])
   const [allStonks, setAllStonks] = useState<Token[]>([])
   const [feed, setFeed] = useState<FeedItem[]>([])
@@ -824,6 +995,35 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const composerRef = useRef<HTMLDivElement>(null)
   const identity = useIdentity()
+
+  const openProfile = useCallback((w: string) => {
+    if (!w) return
+    setProfileWallet(w)
+    setView('profile')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [])
+
+  useEffect(() => {
+    fetchFollows(identity).then((t) => setFollowing(new Set(t))).catch(() => null)
+  }, [identity])
+
+  const toggleFollow = useCallback(async (target: string) => {
+    if (target === identity) return
+    const willFollow = !following.has(target)
+    if (willFollow) addFollow(identity, target).catch(() => null)
+    else removeFollow(identity, target).catch(() => null)
+    setFollowing((prev) => {
+      const next = new Set(prev)
+      if (willFollow) next.add(target)
+      else next.delete(target)
+      return next
+    })
+  }, [identity, following])
+
+  const visiblePosts = useMemo(
+    () => (feedMode === 'following' ? userPosts.filter((p) => following.has(p.author)) : userPosts),
+    [userPosts, feedMode, following],
+  )
 
   const posts = useMemo(() => derivePosts(feed), [feed])
 
@@ -840,12 +1040,10 @@ export default function App() {
   }, [tokens, posts])
 
   const loadAll = useCallback(async () => {
-    const [tokRes, volRes, feedRes, leadRes, postsRes] = await Promise.all([
+    setLoading(true)
+    const [tokRes, volRes] = await Promise.all([
       fetchTokens(60, 'trending').catch(() => null),
       fetchTokens(100, 'volume').catch(() => null),
-      fetchFeed(40).catch(() => null),
-      fetchLeaderboard(20).catch(() => null),
-      fetchPosts(50).catch(() => null),
     ])
     const arr = (r: { tokens?: Token[] } | null) => (Array.isArray(r?.tokens) ? r!.tokens : [])
     const trend = arr(tokRes)
@@ -854,6 +1052,11 @@ export default function App() {
       const seen = new Set<string>()
       setAllStonks([...arr(volRes), ...trend].filter((t) => t.symbol && !seen.has(t.symbol) && !!seen.add(t.symbol)))
     }
+    const [feedRes, leadRes, postsRes] = await Promise.all([
+      fetchFeed(40).catch(() => null),
+      fetchLeaderboard(20).catch(() => null),
+      fetchPosts(50).catch(() => null),
+    ])
     if (Array.isArray(feedRes)) setFeed(feedRes)
     if (Array.isArray(leadRes?.rows)) setLeader(leadRes!.rows)
     if (Array.isArray(postsRes)) setUserPosts(postsRes)
@@ -939,8 +1142,23 @@ export default function App() {
 
       <main className="relative z-10 mx-auto max-w-7xl gap-6 px-4 py-6">
         {view === 'trending' && <TrendingView tokens={tokens} />}
-        {view === 'degens' && <DegensView rows={leader} />}
-        {view === 'portfolio' && <PortfolioView identity={identity} tokens={tokens} leader={leader} posts={posts} onPosted={loadAll} />}
+        {view === 'degens' && <DegensView rows={leader} onOpen={openProfile} />}
+        {view === 'portfolio' && <PortfolioView identity={identity} tokens={tokens} leader={leader} posts={posts} onPosted={loadAll} onOpen={openProfile} />}
+
+        {view === 'profile' && profileWallet && (
+          <ProfileView
+            identity={identity}
+            wallet={profileWallet}
+            followed={following.has(profileWallet)}
+            userPosts={userPosts}
+            feedPosts={posts}
+            tokens={tokens}
+            onFollow={() => toggleFollow(profileWallet)}
+            onLike={handleLike}
+            onBack={() => { setProfileWallet(null); setView('home') }}
+            onOpen={openProfile}
+          />
+        )}
 
         {view === 'home' && (
           <div className="flex gap-6">
@@ -957,26 +1175,45 @@ export default function App() {
               </div>
 
               <div ref={composerRef} className="space-y-3">
-                <Composer identity={identity} allStonks={allStonks} tokens={tokens} onPosted={loadAll} />
+                <Composer identity={identity} allStonks={allStonks} tokens={tokens} onPosted={loadAll} onOpenProfile={openProfile} />
+              </div>
+
+              <div className="mt-4 flex items-center gap-3">
+                <div className="flex items-center gap-1 rounded-full border border-[#1f2740] bg-[#0c1531] p-1">
+                  {(['general', 'following'] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setFeedMode(m)}
+                      className={`rounded-full px-3.5 py-1.5 text-[12px] font-bold transition-all ${feedMode === m ? 'bg-white text-[#09090b]' : 'text-[#b3bdd4] hover:text-white'}`}
+                    >
+                      {m === 'general' ? 'General' : `Following · ${following.size}`}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-[11px] text-[#3a4a75]">follow wallets to build your own feed</span>
               </div>
 
               <div className="mt-4 space-y-4">
-                {userPosts.length === 0 && (
+                {visiblePosts.length === 0 && (
                   <div className="card p-8 text-center pop-in">
-                    <div className="text-2xl">🗣️</div>
-                    <div className="mt-2 text-[14px] font-semibold text-white">No posts yet — be the first to speak.</div>
-                    <div className="mt-1 text-[12px] text-[#b3bdd4]">Call a 100x, flex a bag, or shill a BaseStonk token.</div>
+                    <div className="text-2xl">{feedMode === 'following' ? '🫂' : '🗣️'}</div>
+                    <div className="mt-2 text-[14px] font-semibold text-white">
+                      {feedMode === 'following' ? 'Your followed feed is empty.' : 'No posts yet — be the first to speak.'}
+                    </div>
+                    <div className="mt-1 text-[12px] text-[#b3bdd4]">
+                      {feedMode === 'following' ? 'Follow some degens — click any wallet — and their calls show up here.' : 'Call a 100x, flex a bag, or shill a BaseStonk token.'}
+                    </div>
                   </div>
                 )}
-                {userPosts.map((p, i) => (
-                  <UserPostCard key={p.id} post={p} onLike={handleLike} delay={i * 35} />
+                {visiblePosts.map((p, i) => (
+                  <UserPostCard key={p.id} post={p} onLike={handleLike} onOpen={openProfile} delay={i * 35} />
                 ))}
               </div>
             </section>
 
             <aside className="hidden w-72 shrink-0 flex-col gap-6 self-start xl:flex">
               <TrendingStonks tokens={tokens} />
-              <TopDegens rows={leader} />
+              <TopDegens rows={leader} onOpen={openProfile} />
             </aside>
           </div>
         )}

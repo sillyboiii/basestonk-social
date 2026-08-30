@@ -20,25 +20,39 @@ function shortAddr(a: unknown): string {
   return `${s.slice(0, 6)}…${s.slice(-4)}`
 }
 
-async function jfetch<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`)
+async function jfetch<T>(path: string, attempt = 0, retries = 4, timeoutMs = 8000): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { signal: AbortSignal.timeout(timeoutMs) })
+  if ((res.status === 429 || res.status === 502 || res.status === 503) && attempt < retries) {
+    const sleep = path.includes('/trades') ? 400 * Math.pow(2, attempt) + Math.floor(Math.random() * 150) : 300 * Math.pow(2, attempt)
+    await new Promise((r) => setTimeout(r, sleep))
+    return jfetch<T>(path, attempt + 1, retries, timeoutMs)
+  }
   if (!res.ok) throw new Error(`Upstream ${res.status}`)
   return res.json() as Promise<T>
 }
 
 // tiny per-instance cache + stale fallback: keeps upstream API from being hammered
 const upstreamCache = new Map<string, { at: number; data: unknown }>()
-async function jfetchCached<T>(path: string, ttl = 12000): Promise<T> {
+const inflight = new Map<string, Promise<unknown>>()
+async function jfetchCached<T>(path: string, ttl = 12000, retries = 4, timeoutMs = 8000): Promise<T> {
   const hit = upstreamCache.get(path)
   if (hit && Date.now() - hit.at < ttl) return hit.data as T
-  try {
-    const data = await jfetch<T>(path)
-    upstreamCache.set(path, { at: Date.now(), data })
-    return data
-  } catch (e) {
-    if (hit) return hit.data as T
-    throw e
-  }
+  const pending = inflight.get(path)
+  if (pending) return pending as Promise<T>
+  const run = (async () => {
+    try {
+      const data = await jfetch<T>(path, 0, retries, timeoutMs)
+      upstreamCache.set(path, { at: Date.now(), data })
+      return data
+    } catch (e) {
+      if (hit) return hit.data as T
+      throw e
+    } finally {
+      inflight.delete(path)
+    }
+  })()
+  inflight.set(path, run)
+  return run
 }
 
 async function poolMap<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -76,16 +90,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (url.includes('/api/positions')) {
       const u = new URL(url, 'http://x')
       const wallet = (u.searchParams.get('wallet') || '').toLowerCase()
-      if (!/^0x[0-9a-f]{40}$/.test(wallet)) return res.json({ positions: [], trades: [] })
-      const data = await jfetchCached<any>(`/api/launchpad/tokens?chain=base&limit=80&sort=volume`, 30000).catch(() => null)
-      const top = (data?.tokens || []).slice(0, 80)
-      if (!top.length) return res.json({ positions: [], trades: [] })
+      if (!/^0x[0-9a-f]{40}$/.test(wallet)) return res.json({ positions: [], trades: [], scanned: 0 })
+      const scanKey = `positions:${wallet}`
+      const scannedHit = upstreamCache.get(scanKey)
+      if (scannedHit && Date.now() - scannedHit.at < 20000) return res.json(scannedHit.data)
+      const t0 = Date.now()
+      const data = await jfetchCached<any>(`/api/launchpad/tokens?chain=base&limit=100&sort=volume`, 20000).catch(() => null)
+      const top = (data?.tokens || []).slice(0, 20)
+      console.error('[positions]', wallet, 'tokensList', data ? 'ok' : 'FAIL', 'top', top.length, 'ms', Date.now() - t0)
+      if (!top.length) return res.json({ positions: [], trades: [], scanned: 0 })
       const byTok = new Map<string, any>()
       const raw: any[] = []
-      await poolMap(top, 6, async (t: any) => {
+      const seenTrades = new Set<string>()
+      let scanned = 0
+      const ingest = async (t: any) => {
+        if (Date.now() - t0 > 6500) return
         try {
-          const tr = await jfetchCached<any>(`/api/launchpad/tokens/${t.address}/trades?chain=base&limit=60&trader=${wallet}`, 15000).catch(() => null)
-          const mine = (tr?.trades || []).filter((x: any) => String(x?.trader || '').toLowerCase() === wallet)
+          const tr = await jfetchCached<any>(`/api/launchpad/tokens/${t.address}/trades?chain=base&limit=100${wallet ? `&trader=${wallet}` : ''}`, 30000, 3, 3000).catch(() => null)
+          const list = tr?.trades || []
+          scanned += list.length
+          const mine = list.filter((x: any) => String(x?.trader || '').toLowerCase() === wallet)
           if (!mine.length) return
           const key = String(t.symbol || '').toUpperCase()
           if (!key) return
@@ -96,11 +120,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           mine.forEach((x: any) => {
             if (x.side === 'buy') acc.buys.push(x)
             else acc.sells.push(x)
+            if (!seenTrades.has(x.id)) {
+              seenTrades.add(x.id)
+              raw.push({ trade: x, symbol: t.symbol, name: t.name, imageUrl: t.imageUrl || t.logoUrl })
+            }
           })
           byTok.set(key, acc)
-          mine.forEach((x: any) => raw.push({ trade: x, symbol: t.symbol, name: t.name, imageUrl: t.imageUrl || t.logoUrl }))
         } catch { /* skip */ }
-      })
+      }
+      await ingest(top[0])
+      await poolMap(top.slice(1), 4, ingest)
+      console.error('[positions]', wallet, 'scanned', scanned, 'byTokKeys', Array.from(byTok.keys()).join(','), 'ms', Date.now() - t0)
       const positions = Array.from(byTok.values()).map((acc: any) => {
         const buys = acc.buys, sells = acc.sells
         const buyVol = buys.reduce((s: number, x: any) => s + (x.volumeUsd || 0), 0)
@@ -125,7 +155,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         amountToken: trade.amountToken, createdAt: trade.createdAt, txn: trade.txHash,
         tokenImageUrl: imageUrl, change24hPct: 0, marketcapUsd: 0,
       }))
-      return res.json({ positions, trades })
+      const payload = { positions, trades, scanned }
+      upstreamCache.set(scanKey, { at: Date.now(), data: payload })
+      return res.json(payload)
     }
 
     // ─── /api/tokens ─────────────────────────────────────────
@@ -133,7 +165,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const u = new URL(url, 'http://x')
       const limit = u.searchParams.get('limit') || '50'
       const sort = u.searchParams.get('sort') || 'trending'
-      const data = await jfetchCached<any>(`/api/launchpad/tokens?chain=base&limit=${limit}&sort=${sort}`, 5000)
+      const data = await jfetchCached<any>(`/api/launchpad/tokens?chain=base&limit=${limit}&sort=${sort}`, 20000)
       const tokens = (data.tokens || []).map((t: any) => ({
         address: t.address, name: t.name, symbol: t.symbol,
         priceUsd: t.priceUsd || 0, change24hPct: t.change24hPct || 0,
@@ -185,12 +217,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // ─── /api/leaderboard ────────────────────────────────────
     if (url.includes('/api/leaderboard')) {
-      const data = await jfetchCached<any>(`/api/launchpad/tokens?chain=base&limit=40&sort=volume`)
-      const top = (data.tokens || []).slice(0, 40)
+      const data = await jfetchCached<any>(`/api/launchpad/tokens?chain=base&limit=24&sort=volume`, 30000)
+      const top = (data.tokens || []).slice(0, 24)
       const map = new Map<string, { volumeUsd: number; buys: number; sells: number; createdAt?: string }>()
-      await poolMap(top, 6, async (t: any) => {
+      await poolMap(top, 5, async (t: any) => {
         try {
-          const tr = await jfetchCached<any>(`/api/launchpad/tokens/${t.address}/trades?chain=base&limit=60`, 15000)
+          const tr = await jfetchCached<any>(`/api/launchpad/tokens/${t.address}/trades?chain=base&limit=40`, 30000)
           ;(tr.trades || []).forEach((trade: any) => {
             const trader = trade.trader
             const cur = map.get(trader) || { volumeUsd: 0, buys: 0, sells: 0, createdAt: trade.createdAt }

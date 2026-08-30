@@ -83,8 +83,8 @@ export interface Position {
   open: boolean
 }
 
-export async function fetchPositions(wallet: string): Promise<{ positions: Position[]; trades: FeedItem[] }> {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(wallet)) return { positions: [], trades: [] }
+export async function fetchPositions(wallet: string): Promise<{ positions: Position[]; trades: FeedItem[]; scanned: number }> {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(wallet)) return { positions: [], trades: [], scanned: 0 }
   return get(`/api/positions?wallet=${wallet}`)
 }
 
