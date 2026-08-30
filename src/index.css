@@ -44,6 +44,28 @@ body {
 
 .gem-glow { filter: drop-shadow(0 0 14px rgba(0,82,255,0.55)); }
 
+/* BaseStonk starfield backdrop */
+.bs-backdrop {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  overflow: hidden; contain: strict;
+}
+.bs-backdrop__stars {
+  position: absolute; left: 0; right: 0; top: 0; height: 200%;
+  background-repeat: repeat;
+  animation: bs-drift linear infinite;
+}
+.bs-backdrop__stars--far  { --bs-drift: -220px; background-image: url('/bstonk-brand/far.svg'); }
+.bs-backdrop__stars--near { --bs-drift: -380px; background-image: url('/bstonk-brand/near.svg'); }
+@keyframes bs-drift {
+  0% { transform: translateZ(0); }
+  to { transform: translate3d(0, var(--bs-drift), 0); }
+}
+
+/* BaseStonk badge chips (PLATFORM / OG / features) */
+.bs-badge { border-radius: 999px; font-size: 10px; font-weight: 800; }
+.bs-badge-gold { color: #f5c847; background: rgba(245,197,66,0.14); }
+.bs-badge-soft { color: #e8edf7; background: rgba(232,237,247,0.1); }
+
 .card {
   background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.005));
   border: 1px solid var(--border);

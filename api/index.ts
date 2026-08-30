@@ -56,6 +56,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         volume24hUsd: t.volume24hUsd || 0, marketcapUsd: t.marketcapUsd || 0,
         holders: t.holders || 0, creator: t.creator || '',
         imageUrl: t.imageUrl, logoUrl: t.logoUrl,
+        og: !!t.og, platform: !!t.platform, venue: t.venue || '',
+        createdAt: t.createdAt || '', progressBps: t.progressBps || 0,
+        description: t.description || '', links: t.links || {},
       }))
       return res.json({ total: data.total, hasNext: data.hasNext, tokens })
     }

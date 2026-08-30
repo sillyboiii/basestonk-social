@@ -10,6 +10,12 @@ export interface Token {
   creator: string
   imageUrl?: string
   logoUrl?: string
+  og?: boolean
+  platform?: boolean
+  venue?: string
+  createdAt?: string
+  progressBps?: number
+  description?: string
 }
 
 export interface FeedItem {
