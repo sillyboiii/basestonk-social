@@ -46,6 +46,10 @@ export interface Post {
   traderShort: string
   tokenSymbol: string
   tokenName?: string
+  tokenImageUrl?: string
+  change24hPct?: number
+  marketcapUsd?: number
+  spark?: number[]
   side: 'buy' | 'sell'
   priceUsd: number
   volumeUsd: number
@@ -62,6 +66,11 @@ export function derivePosts(feed: Array<{
   trader: string
   traderShort: string
   tokenSymbol: string
+  tokenName?: string
+  tokenImageUrl?: string
+  change24hPct?: number
+  marketcapUsd?: number
+  spark?: number[]
   side: 'buy' | 'sell'
   priceUsd: number
   volumeUsd: number

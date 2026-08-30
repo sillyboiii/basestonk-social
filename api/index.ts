@@ -71,19 +71,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (url.includes('/api/feed')) {
       const data = await jfetch<any>(`/api/launchpad/tokens?chain=base&limit=30&sort=trending`)
       const top = (data.tokens || []).slice(0, 12)
-      const all: { trade: any; symbol: string; name: string }[] = []
+      const all: { trade: any; symbol: string; name: string; imageUrl?: string; change24hPct: number; marketcapUsd: number; spark: number[] }[] = []
       await Promise.all(top.map(async (t: any) => {
         try {
-          const tr = await jfetch<any>(`/api/launchpad/tokens/${t.address}/trades?chain=base&limit=8`)
-          ;(tr.trades || []).forEach((trade: any) => all.push({ trade, symbol: t.symbol, name: t.name }))
+          const [tr, cdl] = await Promise.all([
+            jfetch<any>(`/api/launchpad/tokens/${t.address}/trades?chain=base&limit=8`).catch(() => null),
+            jfetch<any>(`/api/launchpad/tokens/${t.address}/candles?chain=base&interval=5m&limit=24`).catch(() => null),
+          ])
+          const spark = Array.isArray(cdl?.candles) ? cdl.candles.map((c: any) => c.c) : []
+          ;(tr?.trades || []).forEach((trade: any) => all.push({
+            trade, symbol: t.symbol, name: t.name, imageUrl: t.imageUrl || t.logoUrl,
+            change24hPct: t.change24hPct || 0, marketcapUsd: t.marketcapUsd || 0, spark,
+          }))
         } catch { /* skip */ }
       }))
       all.sort((a, b) => (b.trade.createdAt || '').localeCompare(a.trade.createdAt || ''))
-      const items = all.slice(0, 40).map(({ trade, symbol, name }) => ({
+      const items = all.slice(0, 40).map(({ trade, symbol, name, imageUrl, change24hPct, marketcapUsd, spark }) => ({
         id: trade.id, token: trade.token, tokenSymbol: symbol, tokenName: name,
         trader: trade.trader, traderShort: shortAddr(trade.trader),
         side: trade.side, priceUsd: trade.priceUsd || 0, volumeUsd: trade.volumeUsd || 0,
         amountToken: trade.amountToken, createdAt: trade.createdAt, txn: trade.txHash,
+        tokenImageUrl: imageUrl, change24hPct, marketcapUsd, spark,
       }))
       return res.json(items)
     }

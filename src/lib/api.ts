@@ -25,6 +25,10 @@ export interface FeedItem {
   amountToken: string
   createdAt: string
   txn: string
+  tokenImageUrl?: string
+  change24hPct?: number
+  marketcapUsd?: number
+  spark?: number[]
 }
 
 export interface LeaderRow {

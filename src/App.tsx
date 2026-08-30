@@ -4,93 +4,94 @@ import {
   fmtUsd,
 } from './lib/api'
 import type { Token, FeedItem, LeaderRow } from './lib/api'
-import { derivePosts, avatarGradient, initials, relativeTime, shortAddr } from './lib/social'
+import { derivePosts, initials, relativeTime, shortAddr } from './lib/social'
 import type { Post } from './lib/social'
 
-// ─── Avatar ────────────────────────────────────────────────────────────────
+// ─── Sparkline ─────────────────────────────────────────────────────────────
 
-function Avatar({ addr, size = 40 }: { addr: string; size?: number }) {
+function Sparkline({ data, up, w = 170, h = 40 }: { data: number[]; up: boolean; w?: number; h?: number }) {
+  if (!data || data.length < 2) return <div style={{ width: w, height: h }} />
+  const min = Math.min(...data)
+  const max = Math.max(...data)
+  const span = max - min || 1
+  const pts = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * (w - 4) + 2
+    const y = h - 3 - ((v - min) / span) * (h - 6)
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+  const stroke = up ? '#45d68f' : '#ea6055'
+  const fill = up ? 'rgba(69,214,143,0.18)' : 'rgba(234,96,85,0.18)'
   return (
-    <div
-      className="grid shrink-0 place-items-center rounded-full font-display font-bold text-white ring-2 ring-white/10"
-      style={{ width: size, height: size, background: avatarGradient(addr), fontSize: size * 0.32 }}
-    >
-      {initials(addr)}
-    </div>
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="overflow-visible">
+      <polygon points={`2,${h - 2} ${pts} ${w - 2},${h - 2}`} fill={fill} />
+      <polyline points={pts} fill="none" stroke={stroke} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={pts.split(' ').at(-1)!.split(',')[0]} cy={pts.split(' ').at(-1)!.split(',')[1]} r="2.6" fill={stroke} />
+    </svg>
   )
 }
 
-// ─── Feed post card ─────────────────────────────────────────────────────────
+// ─── Feed post card (pump.fun-style) ───────────────────────────────────────
 
 function PostCard({ post }: { post: Post }) {
-  const flexUp = (post.pnlPct || 0) >= 0
   const buy = post.side === 'buy'
-  const verb = post.kind === 'flex' ? 'is flexing' : buy ? 'bought' : 'sold'
-  const verbColor = buy ? 'text-[#45d68f]' : 'text-[#ea6055]'
+  const up = (post.change24hPct ?? 0) >= 0
+  const actionColor = buy ? 'text-[#45d68f]' : 'text-[#ea6055]'
 
   return (
-    <article className="card overflow-hidden">
+    <article className="card overflow-hidden p-5">
       {/* author row */}
-      <div className="flex items-start gap-4 px-6 pt-5">
-        <Avatar addr={post.trader} size={52} />
+      <div className="flex items-center gap-3">
+        {post.tokenImageUrl
+          ? <img src={post.tokenImageUrl} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover ring-2 ring-white/10" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+          : <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#0052ff] to-[#2d7cff] text-[13px] font-bold text-white">{post.tokenSymbol.slice(0, 2)}</div>}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2.5">
-            <span className="font-display text-lg font-bold text-white">{post.traderShort}</span>
+          <div className="flex items-center gap-2">
+            <span className="truncate font-mono text-[13px] font-medium text-white">{post.traderShort}</span>
             {post.streak && post.streak > 2 && (
-              <span className="rounded-full bg-[#f5c847]/15 px-2.5 py-0.5 text-[11px] font-bold text-[#f5c847]">🔥 {post.streak} streak</span>
+              <span className="shrink-0 text-[11px] font-bold text-[#f5c847]">🔥 {post.streak}</span>
             )}
           </div>
-          <div className="mt-0.5 flex items-center gap-2 text-[12px] text-[#b3bdd4]">
-            <a href={`https://basescan.org/address/${post.trader}`} target="_blank" rel="noreferrer" className="font-mono hover:text-[#e4e4e7]">{post.trader}</a>
-            <span>·</span>
-            <span>{relativeTime(post.createdAt)}</span>
+          <div className="text-[11px] text-[#b3bdd4]">
+            <span className={actionColor}>{buy ? 'bought' : 'sold'} {fmtUsd(post.volumeUsd)}</span>
+            <span> of </span>
+            <span className="font-bold text-[#0052ff]">${post.tokenSymbol}</span>
+            <span> · {relativeTime(post.createdAt)}</span>
           </div>
         </div>
+        {post.spark && post.spark.length >= 2 && (
+          <div className="hidden shrink-0 sm:block"><Sparkline data={post.spark} up={up} /></div>
+        )}
       </div>
 
-      {/* the move */}
-      <div className="mt-4 px-6">
-        <p className="text-[17px] leading-relaxed text-white">
-          <span className={`font-display font-bold ${verbColor}`}>{verb}</span>{' '}
-          <span className="font-extrabold text-[#0052ff]">${post.tokenSymbol}</span>{' '}
-          <span className="text-[#b3bdd4]">{fmtUsd(post.volumeUsd)} @ {fmtUsd(post.priceUsd, 5)}</span>
-        </p>
-      </div>
-
-      {/* P&L flex strip */}
-      {post.kind === 'flex' && (
-        <div className={`mx-6 mt-4 flex items-center justify-between rounded-xl border px-5 py-4 ${flexUp ? 'border-[#45d68f]/25 bg-[#45d68f]/8' : 'border-[#ea6055]/25 bg-[#ea6055]/8'}`}>
-          <div>
-            <div className="text-[11px] uppercase tracking-wider text-[#b3bdd4]">P&L on ${post.tokenSymbol}</div>
-            <div className={`font-display text-2xl font-black leading-tight ${flexUp ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{flexUp ? '+' : ''}{post.pnlPct}%</div>
-          </div>
+      {/* info strip */}
+      <div className="mt-3 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-[#1f2740] bg-[#1f2740]">
+        <div className="bg-[#0d142b] px-3 py-2">
+          <div className="text-[9px] uppercase tracking-wider text-[#b3bdd4]">Market cap</div>
+          <div className="font-display text-[13px] font-black text-white">{fmtUsd(post.marketcapUsd ?? 0)}</div>
         </div>
-      )}
+        <div className="bg-[#0d142b] px-3 py-2">
+          <div className="text-[9px] uppercase tracking-wider text-[#b3bdd4]">24h</div>
+          <div className={`font-display text-[13px] font-black ${up ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{up ? '▲' : '▼'} {Math.abs(post.change24hPct ?? 0).toFixed(1)}%</div>
+        </div>
+        <div className="bg-[#0d142b] px-3 py-2">
+          <div className="text-[9px] uppercase tracking-wider text-[#b3bdd4]">Price</div>
+          <div className="font-display text-[13px] font-black text-white">{fmtUsd(post.priceUsd, 6)}</div>
+        </div>
+      </div>
 
       {/* footer actions */}
-      <div className="mt-4 flex items-center justify-between border-t border-[#1f2740] px-6 py-3 text-[12px] text-[#b3bdd4]">
-        <a href={`https://basescan.org/address/${post.trader}`} target="_blank" rel="noreferrer" className="font-mono transition-colors hover:text-[#e4e4e7]">view wallet</a>
-        <a href={`https://basescan.org/tx/${post.txn}`} target="_blank" rel="noreferrer" className="font-mono transition-colors hover:text-[#e4e4e7]">tx {post.txn.slice(0, 8)}…</a>
+      <div className="mt-3 flex items-center justify-between text-[11px] text-[#b3bdd4]">
+        <a href={`https://basescan.org/address/${post.trader}`} target="_blank" rel="noreferrer" className="font-mono transition-colors hover:text-white">{shortAddr(post.trader, 6)} · view</a>
+        <a href={`https://basescan.org/tx/${post.txn}`} target="_blank" rel="noreferrer" className="font-mono transition-colors hover:text-white">tx {post.txn.slice(0, 8)}…</a>
       </div>
     </article>
   )
 }
 
-// ─── Hero stats (match BaseStonk stat tiles) ────────────────────────────────
-
-function StatTile({ label, value, cyan = false }: { label: string; value: string; cyan?: boolean }) {
-  return (
-    <div className="card px-5 py-4">
-      <div className="text-[11px] font-bold uppercase tracking-wider text-[#b3bdd4]">{label}</div>
-      <div className={`font-display text-[28px] font-black leading-tight ${cyan ? 'stat-grad-cyan' : 'stat-grad'}`}>{value}</div>
-    </div>
-  )
-}
-
-// ─── Trending stonks chips ─────────────────────────────────────────────────
+// ─── Trending stonks (token cards) ─────────────────────────────────────────
 
 function TrendingStonks({ tokens }: { tokens: Token[] }) {
-  const hot = [...tokens].sort((a, b) => b.change24hPct - a.change24hPct).slice(0, 5)
+  const hot = [...tokens].sort((a, b) => b.change24hPct - a.change24hPct).slice(0, 6)
   return (
     <section>
       <h3 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Trending stonks</h3>
@@ -99,12 +100,12 @@ function TrendingStonks({ tokens }: { tokens: Token[] }) {
           const up = t.change24hPct >= 0
           return (
             <div key={t.address} className="card flex items-center gap-3 px-3 py-2">
-              {t.logoUrl
-                ? <img src={t.logoUrl} alt="" className="h-8 w-8 rounded-full bg-[#0d142b]" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              {t.logoUrl || t.imageUrl
+                ? <img src={t.imageUrl || t.logoUrl} alt="" className="h-8 w-8 rounded-full bg-[#0d142b] object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                 : <div className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-[#0052ff] to-[#2d7cff] text-[10px] font-bold text-white">{t.symbol.slice(0, 2)}</div>}
               <div className="min-w-0 flex-1">
                 <div className="truncate font-extrabold text-[#0052ff]">${t.symbol}</div>
-                <div className="text-[12px] font-black text-white">{fmtUsd(t.marketcapUsd)}</div>
+                <div className="text-[11px] font-black text-white">{fmtUsd(t.marketcapUsd)}</div>
                 <div className="text-[10px] text-[#b3bdd4]">Vol {fmtUsd(t.volume24hUsd)}</div>
               </div>
               <span className={`shrink-0 font-mono text-[12px] font-extrabold ${up ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{up ? '▲' : '▼'} {Math.abs(t.change24hPct).toFixed(1)}%</span>
@@ -116,7 +117,7 @@ function TrendingStonks({ tokens }: { tokens: Token[] }) {
   )
 }
 
-// ─── Top degens (leaderboard as people) ─────────────────────────────────────
+// ─── Top degens (leaderboard) ──────────────────────────────────────────────
 
 function TopDegens({ rows }: { rows: LeaderRow[] }) {
   return (
@@ -129,7 +130,7 @@ function TopDegens({ rows }: { rows: LeaderRow[] }) {
           return (
             <div key={r.trader} className="flex items-center gap-2.5 border-b border-[#1f2740] px-3 py-2.5 last:border-0">
               <span className={`w-4 shrink-0 text-center font-display text-[12px] font-bold ${medal}`}>{i + 1}</span>
-              <Avatar addr={r.trader} size={28} />
+              <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#0052ff] to-[#2d7cff] text-[9px] font-bold text-white">{initials(r.trader)}</div>
               <div className="min-w-0 flex-1">
                 <div className="truncate font-mono text-[12px] font-medium text-white">{shortAddr(r.trader)}</div>
                 <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-[#1f2740]">
@@ -157,7 +158,6 @@ export default function App() {
 
   const posts = useMemo(() => derivePosts(feed), [feed])
 
-  // hero stats aggregated from live data
   const stats = useMemo(() => {
     const vol24 = tokens.reduce((s, t) => s + t.volume24hUsd, 0)
     const top = [...tokens].sort((a, b) => b.change24hPct - a.change24hPct)[0]
@@ -196,13 +196,6 @@ export default function App() {
     return () => clearInterval(t)
   }, [])
 
-  // feed sorted newest-first with flex moments floated up
-  const feedPosts = useMemo(() => {
-    const flex = posts.filter((p) => p.kind === 'flex')
-    const rest = posts.filter((p) => p.kind !== 'flex')
-    return [...flex, ...rest]
-  }, [posts])
-
   if (loading) {
     return (
       <div className="bg-grid grid min-h-screen place-items-center">
@@ -217,13 +210,12 @@ export default function App() {
   return (
     <div className="bg-grid min-h-screen">
       <header className="sticky top-0 z-40 border-b border-[#1f2740] bg-[#050a1e]/85 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-2.5">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-2.5">
           <div className="flex items-center gap-2.5">
             <img src="/gem-blue-256.png" alt="" className="h-8 w-8" />
             <span className="font-display text-base font-bold tracking-tight text-white">BASE<span className="text-[#0052ff]">STONK</span></span>
           </div>
 
-          {/* segmented pill nav (matches BaseStonk header) */}
           <nav className="pill-nav row max-md:hidden">
             <a href="#" data-active="true" className="pill-nav-item px-4 py-1.5">Home</a>
             <a href="#" className="pill-nav-item px-4 py-1.5">Trending</a>
@@ -234,44 +226,27 @@ export default function App() {
           <div className="flex items-center gap-2">
             <div className="hidden items-center gap-2 rounded-full border border-[#1f2740] bg-[#0d142b] px-3 py-1.5 sm:flex">
               <span className="h-2 w-2 rounded-full bg-[#45d68f] pulse-dot" />
-              <span className="text-xs font-medium text-[#b3bdd4]">Live on Base</span>
+              <span className="text-xs font-medium text-[#b3bdd4]">Live</span>
             </div>
             <button className="btn-gem px-5 py-1.5 text-[12px] font-semibold">Post</button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto flex max-w-7xl gap-8 px-4 py-6">
-        {/* CENTER: hero + the feed */}
+      <main className="mx-auto flex max-w-7xl gap-6 px-4 py-6">
+        {/* CENTER: the feed */}
         <section className="min-w-0 flex-1">
           {/* hero */}
-          <div className="mb-6">
-            <h1 className="font-display text-5xl font-black tracking-tight text-white">
-              The <span className="text-[#0052ff]">feed</span>
-            </h1>
-            <p className="mt-2 text-[16px] font-semibold text-white">Real moves from the BaseStonk crew — live on Base.</p>
-            <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <StatTile label="24h volume" value={fmtUsd(stats.vol24)} />
-              <StatTile label="Live stonks" value={`${stats.tokens}`} />
-              <StatTile label="Moves today" value={`${stats.moves}`} />
-              <StatTile label="Top stonk" value={stats.topSymbol} cyan />
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-3 px-1">
+            <div>
+              <h1 className="font-display text-4xl font-black tracking-tight text-white">
+                The <span className="text-[#0052ff]">feed</span>
+              </h1>
+              <p className="mt-1 text-[14px] font-medium text-[#b3bdd4]">Real moves from BaseStonk degens, live on Base.</p>
             </div>
-          </div>
-
-          {/* composer */}
-          <div className="card mb-5 p-4">
-            <div className="flex items-center gap-3">
-              <Avatar addr="0xYOU" size={44} />
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="What's the play today? …"
-                className="w-full bg-transparent text-base text-white placeholder-[#5b6b8f] outline-none"
-              />
-            </div>
-            <div className="mt-3 flex items-center justify-between border-t border-[#1f2740] pt-3">
-              <span className="text-[11px] uppercase tracking-wider text-[#b3bdd4]">the crew sees you 👀</span>
-              <button className="btn-gem rounded-full px-6 py-2 text-[13px] font-semibold disabled:opacity-40" disabled={!draft.trim()}>Post</button>
+            <div className="hidden gap-2 sm:flex">
+              <div className="card px-4 py-2"><div className="text-[10px] uppercase tracking-wider text-[#b3bdd4]">24h vol</div><div className="font-display text-lg font-black stat-grad">{fmtUsd(stats.vol24)}</div></div>
+              <div className="card px-4 py-2"><div className="text-[10px] uppercase tracking-wider text-[#b3bdd4]">Top</div><div className="font-display text-lg font-black stat-grad-cyan">${stats.topSymbol} {stats.topPct}%</div></div>
             </div>
           </div>
 
@@ -281,14 +256,14 @@ export default function App() {
                 Some data is temporarily unavailable ({err}). Retrying automatically…
               </div>
             )}
-            {feedPosts.map((p) => (
+            {posts.map((p) => (
               <PostCard key={p.id} post={p} />
             ))}
           </div>
         </section>
 
         {/* RIGHT rail: community */}
-        <aside className="hidden w-72 shrink-0 flex-col gap-6 self-start lg:flex">
+        <aside className="hidden w-72 shrink-0 flex-col gap-6 self-start xl:flex">
           <TrendingStonks tokens={tokens} />
           <TopDegens rows={leader} />
         </aside>
