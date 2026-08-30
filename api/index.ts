@@ -369,8 +369,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const u = new URL(url, 'http://x')
         const wallet = u.searchParams.get('wallet') || ''
         if (!wallet) return res.json({ account: null })
-        const { data, error } = await sb.from('accounts').select('wallet, handle, avatar, bio').eq('wallet', wallet).maybeSingle()
+        let { data, error } = await sb.from('accounts').select('wallet, handle, avatar').eq('wallet', wallet).maybeSingle()
         if (error) return res.status(500).json({ error: error.message })
+        // try bio if the column exists
+        const { data: bioRow } = await sb.from('accounts').select('bio').eq('wallet', wallet).maybeSingle().catch(() => ({ data: null }))
+        if (bioRow) data = { ...data, bio: bioRow.bio }
         // follower/following counts
         const [{ count: followers }, { count: following }] = await Promise.all([
           sb.from('follows').select('*', { count: 'exact', head: true }).eq('target', wallet),
@@ -385,12 +388,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!wallet) return res.status(400).json({ error: 'wallet is required' })
         const clean = String(handle || '').trim()
         if (clean.length > 24) return res.status(400).json({ error: 'handle too long (max 24)' })
-        const { data, error } = await sb.from('accounts').upsert({
-          wallet: String(wallet),
-          handle: clean || null,
-          avatar: avatar ? String(avatar) : null,
-          bio: bio ? String(bio).slice(0, 160) : null,
-        }).select().single()
+        const payload: any = { wallet: String(wallet), handle: clean || null, avatar: avatar ? String(avatar) : null }
+        if (bio !== undefined) payload.bio = String(bio).slice(0, 160)
+        const { data, error } = await sb.from('accounts').upsert(payload).select().single()
         if (error) return res.status(500).json({ error: error.message })
         return res.json(data)
       }
