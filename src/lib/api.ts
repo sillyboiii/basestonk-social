@@ -115,7 +115,12 @@ export async function createPost(input: { author: string; body: string; tokenSym
 }
 
 export async function likePost(id: number): Promise<UserPost> {
-  return get(`/api/posts/${id}/like`)
+  const res = await fetch(`/api/posts/${id}/like`, { method: 'POST' })
+  if (!res.ok) {
+    const j = await res.json().catch(() => null)
+    throw new Error(j?.error || `${res.status}`)
+  }
+  return res.json()
 }
 
 export async function fetchAccount(wallet: string): Promise<Account | null> {

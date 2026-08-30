@@ -95,7 +95,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const scannedHit = upstreamCache.get(scanKey)
       if (scannedHit && Date.now() - scannedHit.at < 20000) return res.json(scannedHit.data)
       const t0 = Date.now()
-      const data = await jfetchCached<any>(`/api/launchpad/tokens?chain=base&limit=100&sort=volume`, 20000).catch(() => null)
+      let data: any = null
+      for (const path of [
+        `/api/launchpad/tokens?chain=base&limit=100&sort=volume`,
+        `/api/launchpad/tokens?chain=base&limit=30&sort=trending`,
+      ]) {
+        data = await jfetchCached<any>(path, 20000, 4, 6000).catch(() => null)
+        if (data?.tokens?.length) break
+      }
       const top = (data?.tokens || []).slice(0, 20)
       console.error('[positions]', wallet, 'tokensList', data ? 'ok' : 'FAIL', 'top', top.length, 'ms', Date.now() - t0)
       if (!top.length) return res.json({ positions: [], trades: [], scanned: 0 })

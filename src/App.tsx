@@ -539,7 +539,7 @@ function UserPostCard({ post, onLike, onOpen, delay = 0 }: { post: UserPost; onL
           onClick={() => { setLiked(true); onLike(post.id) }}
           className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-semibold transition-all ${liked ? 'border-[#ea6055]/60 bg-[#ea6055]/10 text-[#ea6055]' : 'border-[#1f2740] text-[#b3bdd4] hover:border-[#ea6055]/40 hover:text-[#ea6055]'}`}
         >
-          {liked ? '♥' : '♡'} {post.likes + (liked ? 1 : 0)}
+          {liked ? '♥' : '♡'} {Math.max(0, post.likes ?? 0) + (liked ? 1 : 0)}
         </button>
       </div>
     </article>
@@ -596,7 +596,11 @@ function PortfolioView({ identity, tokens, leader, posts, onPosted, onOpen }: { 
     const clean = String(w || '').trim()
     if (!/^0x[0-9a-fA-F]{40}$/.test(clean)) return
     setLoading(true)
-    const r = await fetchPositions(clean).catch(() => ({ positions: [], trades: [], scanned: 0 }))
+    let r = await fetchPositions(clean).catch(() => ({ positions: [], trades: [], scanned: 0 }))
+    if (r.scanned === 0) {
+      await new Promise((res) => setTimeout(res, 1200))
+      r = await fetchPositions(clean).catch(() => r)
+    }
     setBag(r)
     setSel((cur) => (r.positions.length ? r.positions.find((p) => cur?.symbol === p.symbol) || r.positions[0] : null))
     setLoading(false)
@@ -804,17 +808,60 @@ function TopDegens({ rows, onOpen }: { rows: LeaderRow[]; onOpen?: (wallet: stri
   )
 }
 
+// ─── Top mover showcase (header) ────────────────────────────────────────────
+
+function TopTokenSpotlight({ t }: { t?: Token }) {
+  if (!t) {
+    return (
+      <div className="card px-4 py-2">
+        <div className="text-[10px] uppercase tracking-wider text-[#b3bdd4]">Top mover</div>
+        <div className="font-display text-lg font-black text-[#3a4a75]">—</div>
+      </div>
+    )
+  }
+  const up = t.change24hPct >= 0
+  const url = `https://basestonk.io/tokens/${t.address}`
+  return (
+    <button
+      onClick={() => window.open(url, '_blank', 'noopener')}
+      className="group min-w-[272px] overflow-hidden rounded-2xl border border-[#0052ff]/30 bg-gradient-to-br from-[#0c1531] via-[#0d142b] to-[#0a0f22] p-3 pl-4 text-left shadow-[0_0_18px_rgba(0,82,255,0.12)] transition-all hover:border-[#0052ff]/70 hover:shadow-[0_0_28px_rgba(0,82,255,0.3)] pop-in"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#f5c847]">🔥 Top mover</div>
+        <span className={`font-mono text-[15px] font-extrabold ${up ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{up ? '▲' : '▼'} {Math.abs(t.change24hPct).toFixed(1)}%</span>
+      </div>
+      <div className="mt-2 flex items-center gap-3">
+        <div className="relative shrink-0">
+          <CoinGlyph src={t.imageUrl || t.logoUrl} symbol={t.symbol} size={46} ring={false} />
+          <span className="pointer-events-none absolute inset-0 animate-pulse rounded-full bg-[#0052ff]/20 blur-[6px]" />
+        </div>
+        <div className="min-w-0">
+          <div className="truncate font-display text-[22px] font-black leading-none text-white">${t.symbol}</div>
+          <div className="mt-1 truncate text-[12px] font-semibold text-[#b3bdd4]">{t.name}</div>
+        </div>
+      </div>
+      <div className="mt-2.5 flex items-center gap-3 border-t border-[#1f2740]/80 pt-2 text-[11px] text-[#b3bdd4]">
+        <span>MCap <b className="font-bold text-white">{fmtUsd(t.marketcapUsd)}</b></span>
+        <span>Vol <b className="font-bold text-white">{fmtUsd(t.volume24hUsd)}</b></span>
+        <span className="ml-auto font-bold text-[#0052ff] transition-all group-hover:translate-x-0.5 group-hover:underline">Trade ↗</span>
+      </div>
+    </button>
+  )
+}
+
 // ─── BaseStonk token card (exact anatomy from basestonk.io) ────────────────
 
 function TokenCard({ t }: { t: Token }) {
   const up = t.change24hPct >= 0
   const age = t.createdAt ? Math.max(0, Math.floor((Date.now() - new Date(t.createdAt).getTime()) / 86_400_000)) : 0
+  const url = `https://basestonk.io/tokens/${t.address}`
   return (
-    <button className="card card-hover group w-full p-4 text-left fade-up">
+    <button onClick={() => window.open(url, '_blank', 'noopener')} className="card card-hover group w-full p-4 text-left fade-up">
       <div className="flex flex-wrap items-center gap-1.5">
         {t.platform && <span className="bs-badge bs-badge-gold px-2 py-0.5">PLATFORM</span>}
         {t.og && <span className="bs-badge bs-badge-soft px-2 py-0.5">OG</span>}
         {t.venue && !t.venue.startsWith('0x') && <span className="bs-badge bs-badge-soft px-2 py-0.5">{t.venue.toUpperCase()}</span>}
+        <span className="ml-auto text-[10px] font-bold text-[#0052ff] opacity-0 transition-opacity group-hover:opacity-100">Official page ↗</span>
       </div>
 
       <div className="mt-3 flex items-center gap-3">
@@ -1036,6 +1083,7 @@ export default function App() {
       moves: posts.length,
       topSymbol: top?.symbol ?? '—',
       topPct: top ? top.change24hPct.toFixed(1) : '0.0',
+      top,
     }
   }, [tokens, posts])
 
@@ -1077,7 +1125,7 @@ export default function App() {
   async function handleLike(id: number) {
     try {
       const updated = await likePost(id)
-      setUserPosts((prev) => prev.map((p) => (p.id === id ? { ...p, likes: updated.likes } : p)))
+      setUserPosts((prev) => prev.map((p) => (p.id === id ? { ...p, likes: updated.likes ?? 0 } : p)))
     } catch { /* keep old */ }
   }
 
@@ -1168,9 +1216,9 @@ export default function App() {
                   <h1 className="font-display text-4xl font-black tracking-tight text-white">The <span className="text-[#0052ff]">feed</span></h1>
                   <p className="mt-1 text-[14px] font-medium text-[#b3bdd4]">Degens call their shots, flex their bags, shill their coins.</p>
                 </div>
-                <div className="hidden gap-2 sm:flex">
+                <div className="hidden items-center gap-2 sm:flex">
                   <div className="card px-4 py-2"><div className="text-[10px] uppercase tracking-wider text-[#b3bdd4]">24h vol</div><div className="font-display text-lg font-black stat-grad number-anim">{fmtUsd(stats.vol24)}</div></div>
-                  <div className="card px-4 py-2"><div className="text-[10px] uppercase tracking-wider text-[#b3bdd4]">Top</div><div className="font-display text-lg font-black stat-grad-cyan number-anim">${stats.topSymbol} {stats.topPct}%</div></div>
+                  <TopTokenSpotlight t={stats.top} />
                 </div>
               </div>
 
