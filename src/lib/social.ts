@@ -32,9 +32,9 @@ export function avatarGradient(addr: string): string {
 }
 
 export function initials(addr: string): string {
-  const h = hash(addr)
+  const h = hash(addr) >>> 0
   const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-  return `${letters[h % 26]}${letters[(h >> 3) % 26]}`
+  return `${letters[h % 26]}${letters[(h >>> 3) % 26]}`
 }
 
 export type PostKind = 'big' | 'buy' | 'sell' | 'flex'

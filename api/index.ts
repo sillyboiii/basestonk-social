@@ -147,7 +147,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const limit = Math.min(Number(u.searchParams.get('limit')) || 50, 200)
         const { data, error } = await sb.from('posts').select('*').order('created_at', { ascending: false }).limit(limit)
         if (error) return res.status(500).json({ error: error.message })
-        return res.json(data || [])
+        const rows = data || []
+        // resolve author handle/avatar from accounts
+        const authors = [...new Set(rows.map((r) => r.author))]
+        let accs: any[] = []
+        try {
+          const { data } = await sb.from('accounts').select('wallet, handle, avatar').in('wallet', authors)
+          accs = data || []
+        } catch { /* accounts table may not exist yet */ }
+        const accMap = new Map((accs || []).map((a) => [a.wallet, a]))
+        return res.json(rows.map((p) => ({ ...p, handle: accMap.get(p.author)?.handle || null, avatar: accMap.get(p.author)?.avatar || null })))
       }
 
       // POST { author, body, tokenSymbol?, tokenImage? }
@@ -161,6 +170,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           body: clean,
           token_symbol: tokenSymbol ? String(tokenSymbol) : null,
           token_image: tokenImage ? String(tokenImage) : null,
+        }).select().single()
+        if (error) return res.status(500).json({ error: error.message })
+        return res.json(data)
+      }
+    }
+
+    // ─── /api/accounts ───────────────────────────────────────
+    if (url.includes('/api/accounts')) {
+      const sb = getSupabase()
+      if (!sb) return res.status(500).json({ error: 'accounts not configured' })
+
+      // GET ?wallet=
+      if (req.method === 'GET') {
+        const u = new URL(url, 'http://x')
+        const wallet = u.searchParams.get('wallet') || ''
+        if (!wallet) return res.json({ account: null })
+        const { data, error } = await sb.from('accounts').select('wallet, handle, avatar').eq('wallet', wallet).maybeSingle()
+        if (error) return res.status(500).json({ error: error.message })
+        return res.json({ account: data || null })
+      }
+
+      // POST { wallet, handle, avatar? } — upsert
+      if (req.method === 'POST') {
+        const { wallet, handle, avatar } = req.body || {}
+        if (!wallet) return res.status(400).json({ error: 'wallet is required' })
+        const clean = String(handle || '').trim()
+        if (clean.length > 24) return res.status(400).json({ error: 'handle too long (max 24)' })
+        const { data, error } = await sb.from('accounts').upsert({
+          wallet: String(wallet),
+          handle: clean || null,
+          avatar: avatar ? String(avatar) : null,
         }).select().single()
         if (error) return res.status(500).json({ error: error.message })
         return res.json(data)

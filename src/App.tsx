@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   fetchTokens, fetchFeed, fetchLeaderboard, fetchPosts, createPost, likePost,
+  fetchAccount, saveAccount,
   fmtUsd, fmtNum,
 } from './lib/api'
 import type { Token, FeedItem, LeaderRow, UserPost } from './lib/api'
@@ -16,6 +17,8 @@ const NAV: { key: View; label: string }[] = [
   { key: 'plwall', label: 'P&L wall' },
 ]
 
+const AVATARS = ['💎', '🐸', '🦅', '🚀', '🔥', '🧠', '👑', '😈', '🫘', '📈']
+
 // ─── Identity: stable pseudo-wallet per browser ────────────────────────────
 
 function useIdentity() {
@@ -27,6 +30,50 @@ function useIdentity() {
     }
     return a
   })[0]
+}
+
+function Avatar({ wallet, avatar, size = 40, className = '' }: { wallet: string; avatar?: string | null; size?: number; className?: string }) {
+  return (
+    <div
+      className={`grid shrink-0 place-items-center rounded-full text-white ${className}`}
+      style={{ width: size, height: size, background: avatarGradient(wallet), fontSize: size * 0.46 }}
+    >
+      {avatar || initials(wallet)}
+    </div>
+  )
+}
+
+// ─── Copy-to-clipboard address ─────────────────────────────────────────────
+
+function CopyAddr({ addr, short, className = '' }: { addr: string; short?: number; className?: string }) {
+  const [copied, setCopied] = useState(false)
+  const text = short ? shortAddr(addr, short) : (shortAddr(addr) )
+  return (
+    <button
+      onClick={async (e) => {
+        e.stopPropagation()
+        try {
+          await navigator.clipboard.writeText(addr)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1400)
+        } catch { /* clipboard unavailable */ }
+      }}
+      title={`Copy ${addr}`}
+      className={`inline-flex items-center gap-1.5 font-mono transition-colors hover:text-white ${className}`}
+    >
+      {copied ? (
+        <span className="rounded bg-[#45d68f]/15 px-1.5 py-0.5 text-[10px] font-bold text-[#45d68f]">copied ✓</span>
+      ) : (
+        <>
+          <span>{text}</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="opacity-60 group-hover/deg:opacity-100">
+            <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="2" />
+          </svg>
+        </>
+      )}
+    </button>
+  )
 }
 
 // ─── Sparkline ─────────────────────────────────────────────────────────────
@@ -44,10 +91,12 @@ function Sparkline({ data, up, w = 170, h = 40 }: { data: number[]; up: boolean;
   const stroke = up ? '#45d68f' : '#ea6055'
   const fill = up ? 'rgba(69,214,143,0.18)' : 'rgba(234,96,85,0.18)'
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="overflow-visible">
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="overflow-visible spark-anim">
       <polygon points={`2,${h - 2} ${pts} ${w - 2},${h - 2}`} fill={fill} />
       <polyline points={pts} fill="none" stroke={stroke} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={pts.split(' ').at(-1)!.split(',')[0]} cy={pts.split(' ').at(-1)!.split(',')[1]} r="2.6" fill={stroke} />
+      <circle cx={pts.split(' ').at(-1)!.split(',')[0]} cy={pts.split(' ').at(-1)!.split(',')[1]} r="2.6" fill={stroke}>
+        <animate attributeName="opacity" values="0;1;1;0" dur="2.5s" repeatCount="indefinite" />
+      </circle>
     </svg>
   )
 }
@@ -67,7 +116,7 @@ function CoinGlyph({ src, symbol, size = 44, ring = true }: { src?: string; symb
   return (
     <img
       src={src} alt="" style={dim} onError={() => setBroken(true)}
-      className={`shrink-0 rounded-full object-cover ${ring ? 'ring-2 ring-white/10' : ''}`}
+      className={`shrink-0 rounded-full object-cover coin-hover ${ring ? 'ring-2 ring-white/10' : ''}`}
     />
   )
 }
@@ -77,8 +126,29 @@ function CoinGlyph({ src, symbol, size = 44, ring = true }: { src?: string; symb
 function Composer({ identity, tokens, onPosted }: { identity: string; tokens: Token[]; onPosted: () => void }) {
   const [body, setBody] = useState('')
   const [tag, setTag] = useState<Token | null>(null)
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showProfile, setShowProfile] = useState(false)
+  const [handle, setHandle] = useState(() => localStorage.getItem('bstonk_handle') || '')
+  const [avatar, setAvatar] = useState(() => localStorage.getItem('bstonk_avatar') || '')
+  const [savingProfile, setSavingProfile] = useState(false)
+  const boxRef = useRef<HTMLDivElement>(null)
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase().replace(/^\$/, '')
+    if (!q) return []
+    return tokens.filter((t) => t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q)).slice(0, 6)
+  }, [query, tokens])
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
 
   async function submit() {
     const clean = body.trim()
@@ -86,14 +156,10 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
     setSubmitting(true)
     setError(null)
     try {
-      await createPost({
-        author: identity,
-        body: clean,
-        tokenSymbol: tag?.symbol,
-        tokenImage: tag?.imageUrl,
-      })
+      await createPost({ author: identity, body: clean, tokenSymbol: tag?.symbol, tokenImage: tag?.imageUrl })
       setBody('')
       setTag(null)
+      setQuery('')
       onPosted()
     } catch (e: any) {
       setError(e.message || 'Post failed')
@@ -102,19 +168,65 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
     }
   }
 
+  async function saveProfile() {
+    setSavingProfile(true)
+    try {
+      const acc = await saveAccount({ wallet: identity, handle: handle.trim(), avatar })
+      localStorage.setItem('bstonk_handle', acc.handle || '')
+      localStorage.setItem('bstonk_avatar', acc.avatar || '')
+      setHandle(acc.handle || '')
+      setAvatar(acc.avatar || '')
+      setShowProfile(false)
+      onPosted()
+    } catch (e: any) {
+      setError(e.message || 'Save failed')
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
   return (
-    <div className="card p-4">
+    <div className="card p-4 pop-in">
       <div className="flex items-start gap-3">
-        <div
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[11px] font-bold text-white"
-          style={{ background: avatarGradient(identity) }}
-        >
-          {initials(identity)}
-        </div>
+        <button onClick={() => setShowProfile((v) => !v)} title="Edit profile" className="group relative">
+          <Avatar wallet={identity} avatar={avatar} size={44} className="ring-2 ring-[#0052ff]/40 transition-transform group-hover:scale-105" />
+          <span className="absolute -bottom-1 -right-1 grid h-4 w-4 place-items-center rounded-full bg-[#0052ff] text-[9px] text-white">✎</span>
+        </button>
         <div className="min-w-0 flex-1">
+          {/* profile editor */}
+          {showProfile && (
+            <div className="pop-in mb-3 rounded-xl border border-[#0052ff]/40 bg-[#0c1531] p-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Your @handle</div>
+              <input
+                value={handle}
+                onChange={(e) => setHandle(e.target.value.replace(/[^\w0-9_]/g, '').slice(0, 24))}
+                placeholder="degensapiens"
+                className="mt-1.5 w-full rounded-lg border border-[#1f2740] bg-[#050a1e]/60 px-3 py-1.5 text-[13px] text-white placeholder-[#3a4a75] outline-none focus:border-[#0052ff]"
+              />
+              <div className="mt-2.5 text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Avatar</div>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {AVATARS.map((a) => (
+                  <button
+                    key={a}
+                    onClick={() => setAvatar(a)}
+                    className={`grid h-8 w-8 place-items-center rounded-full text-[16px] transition-all ${avatar === a ? 'bg-[#0052ff] ring-2 ring-white/40' : 'bg-[#0d142b] hover:bg-[#1f2740]'}`}
+                  >
+                    {a}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-2.5 flex gap-2">
+                <button onClick={saveProfile} disabled={savingProfile} className="btn-gem px-4 py-1.5 text-[12px] font-bold disabled:opacity-50">
+                  {savingProfile ? 'Saving…' : 'Save profile'}
+                </button>
+                <button onClick={() => { setAvatar(''); setHandle(''); saveProfile() }} className="btn-ghost px-3 py-1.5 text-[12px]">Clear</button>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-baseline justify-between gap-2">
-            <span className="font-mono text-[11px] text-[#b3bdd4]">{shortAddr(identity)}</span>
-            <span className="text-[12px] font-bold text-[#28a165]">on Base · live</span>
+            <span className="truncate font-mono text-[11px] text-[#b3bdd4]">{handle ? `@${handle}` : shortAddr(identity)}</span>
+            <span className="shrink-0 text-[12px] font-bold text-[#45d68f]">on Base · live</span>
           </div>
           <textarea
             value={body}
@@ -124,19 +236,7 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
             className="mt-2 w-full resize-none rounded-xl border border-[#1f2740] bg-[#050a1e]/60 p-3 text-[14px] text-white placeholder-[#3a4a75] outline-none transition-colors focus:border-[#0052ff]"
           />
           <div className="mt-2 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <div className="relative">
-                <select
-                  value={tag?.address ?? ''}
-                  onChange={(e) => setTag(tokens.find((t) => t.address === e.target.value) || null)}
-                  className={`appearance-none rounded-full border px-3 py-1.5 text-[12px] font-semibold outline-none transition-colors ${tag ? 'border-[#0052ff] bg-[#0d142b] text-white' : 'border-[#1f2740] bg-[#0d142b] text-[#b3bdd4]'}`}
-                >
-                  <option value="">+ tag token</option>
-                  {tokens.slice(0, 20).map((t) => (
-                    <option key={t.address} value={t.address}>${t.symbol} · {t.name}</option>
-                  ))}
-                </select>
-              </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               {tag && (
                 <button onClick={() => setTag(null)} className="flex items-center gap-1.5 rounded-full bg-[#0d142b] px-2 py-1 text-[11px] text-[#b3bdd4] hover:text-white">
                   <CoinGlyph src={tag.imageUrl || tag.logoUrl} symbol={tag.symbol} size={16} ring={false} />
@@ -144,15 +244,42 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
                   ✕
                 </button>
               )}
+              <div ref={boxRef} className="relative">
+                <input
+                  value={query}
+                  onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
+                  onFocus={() => setOpen(true)}
+                  placeholder={tag ? '' : '+ tag token'}
+                  className="w-36 appearance-none rounded-full border border-[#1f2740] bg-[#0d142b] px-3 py-1.5 text-[12px] font-semibold text-white placeholder-[#b3bdd4] outline-none transition-colors focus:border-[#0052ff]"
+                />
+                {open && matches.length > 0 && (
+                  <div className="drop-panel absolute left-0 top-full z-50 mt-1.5 w-64 overflow-hidden rounded-xl border border-[#1f2740] bg-[#0c1531] shadow-2xl">
+                    {matches.map((t) => (
+                      <button
+                        key={t.address}
+                        onClick={() => { setTag(t); setQuery(''); setOpen(false) }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[#1f2740]"
+                      >
+                        <CoinGlyph src={t.imageUrl || t.logoUrl} symbol={t.symbol} size={24} ring={false} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[12px] font-bold text-[#0052ff]">${t.symbol}</span>
+                          <span className="block truncate text-[10px] text-[#b3bdd4]">{t.name}</span>
+                        </span>
+                        <span className="shrink-0 text-[10px] font-semibold text-[#b3bdd4]">{fmtUsd(t.marketcapUsd)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-            <span className={`text-[11px] font-semibold ${body.length >= 240 ? 'text-[#ea6055]' : 'text-[#3a4a75]'}`}>{body.length}/280</span>
+            <span className={`shrink-0 text-[11px] font-semibold ${body.length >= 240 ? 'text-[#ea6055]' : 'text-[#3a4a75]'}`}>{body.length}/280</span>
           </div>
           {error && <div className="mt-2 rounded-lg border border-[#ea6055]/40 bg-[#ea6055]/10 p-2 text-[12px] text-[#ea6055]">{error}</div>}
           <div className="mt-3 flex justify-end">
             <button
               onClick={submit}
               disabled={!body.trim() || submitting}
-              className="btn-gem px-6 py-2 text-[13px] font-bold disabled:opacity-40"
+              className="btn-gem shimmer-btn px-6 py-2 text-[13px] font-bold disabled:opacity-40"
             >
               {submitting ? 'Posting…' : 'Post'}
             </button>
@@ -165,22 +292,24 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
 
 // ─── User post card (social) ───────────────────────────────────────────────
 
-function UserPostCard({ post, onLike }: { post: UserPost; onLike: (id: number) => void }) {
+function UserPostCard({ post, onLike, delay = 0 }: { post: UserPost; onLike: (id: number) => void; delay?: number }) {
   const [liked, setLiked] = useState(false)
   return (
-    <article className="card p-4">
+    <article className="card p-4 fade-up" style={{ animationDelay: `${delay}ms` }}>
       <div className="flex items-center gap-3">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white" style={{ background: avatarGradient(post.author) }}>
-          {initials(post.author)}
-        </div>
+        <Avatar wallet={post.author} avatar={post.avatar} size={40} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate font-mono text-[13px] font-semibold text-white">{shortAddr(post.author)}</span>
+            {post.handle ? (
+              <span className="truncate text-[13px] font-bold text-white">@{post.handle}</span>
+            ) : (
+              <CopyAddr addr={post.author} short={6} className="text-[13px] font-semibold text-white/90" />
+            )}
           </div>
-          <div className="text-[11px] text-[#b3bdd4]">{relativeTime(post.created_at)}</div>
+          <div className="text-[11px] text-[#b3bdd4]">{relativeTime(post.created_at)} · {shortAddr(post.author, 8)}</div>
         </div>
         {post.token_symbol && (
-          <div className="flex items-center gap-1.5 rounded-full border border-[#0052ff]/40 bg-[#0d142b] px-2.5 py-1">
+          <div className="flex items-center gap-1.5 rounded-full border border-[#0052ff]/40 bg-[#0d142b] px-2.5 py-1 pop-in">
             <CoinGlyph src={post.token_image || undefined} symbol={post.token_symbol} size={18} ring={false} />
             <span className="text-[12px] font-bold text-[#0052ff]">${post.token_symbol}</span>
           </div>
@@ -207,10 +336,10 @@ function TrendingStonks({ tokens }: { tokens: Token[] }) {
     <section>
       <h3 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Trending stonks</h3>
       <div className="space-y-2">
-        {hot.map((t) => {
+        {hot.map((t, i) => {
           const up = t.change24hPct >= 0
           return (
-            <button key={t.address} className="card flex w-full items-center gap-3 px-3 py-2 text-left">
+            <button key={t.address} className="card flex w-full items-center gap-3 px-3 py-2 text-left fade-up" style={{ animationDelay: `${i * 50}ms` }}>
               <CoinGlyph src={t.imageUrl || t.logoUrl} symbol={t.symbol} size={30} ring={false} />
               <div className="min-w-0 flex-1">
                 <div className="truncate font-extrabold text-[#0052ff]">${t.symbol}</div>
@@ -237,12 +366,12 @@ function TopDegens({ rows }: { rows: LeaderRow[] }) {
           const pct = r.volumeUsd > 0 ? (r.volumeUsd / Math.max(rows[0]?.volumeUsd || 1, r.volumeUsd)) * 100 : 0
           const medal = i === 0 ? 'text-[#f5c847]' : i === 1 ? 'text-[#b3bdd4]' : i === 2 ? 'text-[#d9904f]' : 'text-[#3a4a75]'
           return (
-            <div key={r.trader} className="flex items-center gap-2.5 border-b border-[#1f2740] px-3 py-2.5 last:border-0">
+            <div key={r.trader} className="group/deg flex items-center gap-2.5 border-b border-[#1f2740] px-3 py-2.5 last:border-0 transition-colors hover:bg-[#0d142b]/60 fade-up" style={{ animationDelay: `${i * 40}ms` }}>
               <span className={`w-4 shrink-0 text-center font-display text-[12px] font-bold ${medal}`}>{i + 1}</span>
-              <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#0052ff] to-[#2d7cff] text-[9px] font-bold text-white">{initials(r.trader)}</div>
+              <Avatar wallet={r.trader} size={28} />
               <div className="min-w-0 flex-1">
-                <div className="truncate font-mono text-[12px] font-medium text-white">{shortAddr(r.trader)}</div>
-                <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-[#1f2740]">
+                <CopyAddr addr={r.trader} short={6} className="text-[12px] font-medium text-white" />
+                <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-[#1f2740]">
                   <div className="h-full rounded-full bg-gradient-to-r from-[#0052ff] to-[#2d7cff]" style={{ width: `${pct}%` }} />
                 </div>
               </div>
@@ -261,7 +390,7 @@ function TokenCard({ t }: { t: Token }) {
   const up = t.change24hPct >= 0
   const age = t.createdAt ? Math.max(0, Math.floor((Date.now() - new Date(t.createdAt).getTime()) / 86_400_000)) : 0
   return (
-    <button className="card card-hover group w-full p-4 text-left">
+    <button className="card card-hover group w-full p-4 text-left fade-up">
       <div className="flex flex-wrap items-center gap-1.5">
         {t.platform && <span className="bs-badge bs-badge-gold px-2 py-0.5">PLATFORM</span>}
         {t.og && <span className="bs-badge bs-badge-soft px-2 py-0.5">OG</span>}
@@ -312,7 +441,7 @@ function TrendingView({ tokens }: { tokens: Token[] }) {
         <div className="btn-ghost hidden px-3 py-1.5 text-[12px] sm:block">🔍 Search tokens…</div>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {tokens.map((t) => <TokenCard key={t.address} t={t} />)}
+        {tokens.map((t, i) => <span key={t.address} style={{ animationDelay: `${i * 40}ms` }}><TokenCard t={t} /></span>)}
       </div>
     </div>
   )
@@ -332,11 +461,11 @@ function DegensView({ rows }: { rows: LeaderRow[] }) {
         {rows.map((r, i) => {
           const pct = r.volumeUsd > 0 ? (r.volumeUsd / Math.max(rows[0]?.volumeUsd || 1, r.volumeUsd)) * 100 : 0
           return (
-            <div key={r.trader} className="flex items-center gap-3 border-b border-[#1f2740] px-4 py-3 last:border-0">
+            <div key={r.trader} className="flex items-center gap-3 border-b border-[#1f2740] px-4 py-3 last:border-0 transition-colors hover:bg-[#0d142b]/50 fade-up" style={{ animationDelay: `${i * 35}ms` }}>
               <span className={`w-6 shrink-0 text-center font-display text-[14px] font-bold ${medal(i)}`}>{i + 1}</span>
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#0052ff] to-[#2d7cff] text-[10px] font-bold text-white">{initials(r.trader)}</div>
+              <Avatar wallet={r.trader} size={36} />
               <div className="min-w-0 flex-1">
-                <div className="truncate font-mono text-[13px] font-medium text-white">{shortAddr(r.trader)}</div>
+                <CopyAddr addr={r.trader} short={8} className="text-[13px] font-medium text-white" />
                 <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-[#1f2740]">
                   <div className="h-full rounded-full bg-gradient-to-r from-[#0052ff] to-[#2d7cff]" style={{ width: `${pct}%` }} />
                 </div>
@@ -366,16 +495,16 @@ function PnlWall({ posts }: { posts: Post[] }) {
         <p className="mt-1 text-[13px] font-medium text-[#b3bdd4]">Degens flexing their bags. Bragging is a feature.</p>
       </div>
       <div className="space-y-4">
-        {flex.map((p) => {
+        {flex.map((p, i) => {
           const up = (p.pnlPct ?? 0) >= 0
           const actionColor = up ? 'text-[#45d68f]' : 'text-[#ea6055]'
           return (
-            <article key={p.id} className="card overflow-hidden p-5">
+            <article key={p.id} className="card overflow-hidden p-5 fade-up" style={{ animationDelay: `${i * 45}ms` }}>
               <div className="flex items-center gap-3">
                 <CoinGlyph src={p.tokenImageUrl} symbol={p.tokenSymbol} size={52} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="truncate font-mono text-[14px] font-semibold text-white">{p.traderShort}</span>
+                    <CopyAddr addr={p.trader} short={6} className="text-[14px] font-semibold text-white" />
                     {p.streak && p.streak > 2 && <span className="text-[11px] font-bold text-[#f5c847]">🔥 {p.streak}</span>}
                   </div>
                   <div className="mt-0.5 text-[11px] text-[#b3bdd4]">
@@ -385,7 +514,7 @@ function PnlWall({ posts }: { posts: Post[] }) {
                 </div>
                 {p.spark && p.spark.length >= 2 && <div className="hidden shrink-0 sm:block"><Sparkline data={p.spark} up={up} w={150} h={38} /></div>}
                 <div className="shrink-0 text-right">
-                  <div className={`font-display text-2xl font-black ${actionColor}`}>{up ? '▲' : '▼'} {Math.abs(p.pnlPct ?? 0)}%</div>
+                  <div className={`font-display text-2xl font-black ${actionColor} ticker-anim`}>{up ? '▲' : '▼'} {Math.abs(p.pnlPct ?? 0)}%</div>
                   <div className="text-[11px] text-[#b3bdd4]">P&L on {fmtUsd(p.volumeUsd)}</div>
                 </div>
               </div>
@@ -467,8 +596,8 @@ export default function App() {
           <div className="bs-backdrop__stars bs-backdrop__stars--far" />
           <div className="bs-backdrop__stars bs-backdrop__stars--near" />
         </div>
-        <div className="relative z-10 text-center">
-          <img src="/bstonk.webp" alt="" className="mx-auto h-14 w-14 gem-glow" />
+        <div className="relative z-10 text-center pop-in">
+          <img src="/bstonk.webp" alt="" className="mx-auto h-14 w-14 gem-glow loading-spin" />
           <div className="mt-3 animate-pulse text-sm text-[#b3bdd4]">live on base…</div>
         </div>
       </div>
@@ -485,7 +614,7 @@ export default function App() {
       <header className="sticky top-0 z-40 bg-[#050a1e]/80 backdrop-blur-md">
         <div className="mx-auto flex h-[70px] max-w-7xl items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-2.5">
-            <img src="/bstonk.webp" alt="" className="h-9 w-9" />
+            <img src="/bstonk.webp" alt="" className="h-9 w-9 gem-glow hover:rotate-12" style={{ transition: 'transform .3s ease' }} />
             <span className="font-display text-[17px] font-black tracking-tight text-white">BASE<span className="text-[#0052ff]">STONK</span></span>
           </div>
 
@@ -497,15 +626,9 @@ export default function App() {
             ))}
           </nav>
 
-          <div className="flex items-center gap-2">
-            <div className="hidden items-center gap-2 rounded-full border border-[#1f2740] bg-[#0d142b] px-3 py-1.5 sm:flex">
-              <span className="h-2 w-2 rounded-full bg-[#45d68f] pulse-dot" />
-              <span className="text-xs font-medium text-[#b3bdd4]">Live</span>
-            </div>
-            <button className="btn-gem px-5 py-2 text-[13px] font-bold" onClick={() => { setView('home'); setTimeout(() => composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80) }}>
-              Post
-            </button>
-          </div>
+          <button className="btn-gem shimmer-btn px-5 py-2 text-[13px] font-bold" onClick={() => { setView('home'); setTimeout(() => composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80) }}>
+            Post
+          </button>
         </div>
       </header>
 
@@ -537,8 +660,8 @@ export default function App() {
                   <p className="mt-1 text-[14px] font-medium text-[#b3bdd4]">Degens call their shots, flex their bags, shill their coins.</p>
                 </div>
                 <div className="hidden gap-2 sm:flex">
-                  <div className="card px-4 py-2"><div className="text-[10px] uppercase tracking-wider text-[#b3bdd4]">24h vol</div><div className="font-display text-lg font-black stat-grad">{fmtUsd(stats.vol24)}</div></div>
-                  <div className="card px-4 py-2"><div className="text-[10px] uppercase tracking-wider text-[#b3bdd4]">Top</div><div className="font-display text-lg font-black stat-grad-cyan">${stats.topSymbol} {stats.topPct}%</div></div>
+                  <div className="card px-4 py-2"><div className="text-[10px] uppercase tracking-wider text-[#b3bdd4]">24h vol</div><div className="font-display text-lg font-black stat-grad number-anim">{fmtUsd(stats.vol24)}</div></div>
+                  <div className="card px-4 py-2"><div className="text-[10px] uppercase tracking-wider text-[#b3bdd4]">Top</div><div className="font-display text-lg font-black stat-grad-cyan number-anim">${stats.topSymbol} {stats.topPct}%</div></div>
                 </div>
               </div>
 
@@ -553,14 +676,14 @@ export default function App() {
                   </div>
                 )}
                 {userPosts.length === 0 && (
-                  <div className="card p-8 text-center">
+                  <div className="card p-8 text-center pop-in">
                     <div className="text-2xl">🗣️</div>
                     <div className="mt-2 text-[14px] font-semibold text-white">No posts yet — be the first to speak.</div>
                     <div className="mt-1 text-[12px] text-[#b3bdd4]">Call a 100x, flex a bag, or shill a BaseStonk token above.</div>
                   </div>
                 )}
-                {userPosts.map((p) => (
-                  <UserPostCard key={p.id} post={p} onLike={handleLike} />
+                {userPosts.map((p, i) => (
+                  <UserPostCard key={p.id} post={p} onLike={handleLike} delay={i * 35} />
                 ))}
               </div>
             </section>

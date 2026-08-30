@@ -56,6 +56,27 @@ export type Database = {
         }
         Relationships: []
       }
+      accounts: {
+        Row: {
+          wallet: string
+          handle: string | null
+          avatar: string | null
+          created_at: string
+        }
+        Insert: {
+          wallet: string
+          handle?: string | null
+          avatar?: string | null
+          created_at?: string
+        }
+        Update: {
+          wallet?: string
+          handle?: string | null
+          avatar?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {}
     Functions: {}

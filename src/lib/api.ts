@@ -94,6 +94,21 @@ export async function likePost(id: number): Promise<UserPost> {
   return get(`/api/posts/${id}/like`)
 }
 
+export async function fetchAccount(wallet: string): Promise<Account | null> {
+  if (!wallet) return null
+  const j = await get<{ account: Account | null }>(`/api/accounts?wallet=${wallet}`)
+  return j.account
+}
+
+export async function saveAccount(input: { wallet: string; handle: string; avatar?: string }): Promise<Account> {
+  const res = await fetch('/api/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+  if (!res.ok) {
+    const j = await res.json().catch(() => null)
+    throw new Error(j?.error || `${res.status}`)
+  }
+  return res.json()
+}
+
 export function fmtUsd(n: number, decimals = 2): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`
@@ -108,6 +123,14 @@ export interface UserPost {
   token_image: string | null
   likes: number
   created_at: string
+  handle?: string | null
+  avatar?: string | null
+}
+
+export interface Account {
+  wallet: string
+  handle: string | null
+  avatar: string | null
 }
 
 export function fmtNum(n: number): string {
