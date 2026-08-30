@@ -1216,9 +1216,8 @@ export default function App() {
                   <h1 className="font-display text-4xl font-black tracking-tight text-white">The <span className="text-[#0052ff]">feed</span></h1>
                   <p className="mt-1 text-[14px] font-medium text-[#b3bdd4]">Degens call their shots, flex their bags, shill their coins.</p>
                 </div>
-                <div className="hidden items-center gap-2 sm:flex">
+                <div className="hidden sm:block">
                   <div className="card px-4 py-2"><div className="text-[10px] uppercase tracking-wider text-[#b3bdd4]">24h vol</div><div className="font-display text-lg font-black stat-grad number-anim">{fmtUsd(stats.vol24)}</div></div>
-                  <TopTokenSpotlight t={stats.top} />
                 </div>
               </div>
 
@@ -1260,6 +1259,7 @@ export default function App() {
             </section>
 
             <aside className="hidden w-72 shrink-0 flex-col gap-6 self-start xl:flex">
+              <TopTokenSpotlight t={stats.top} />
               <TrendingStonks tokens={tokens} />
               <TopDegens rows={leader} onOpen={openProfile} />
             </aside>
