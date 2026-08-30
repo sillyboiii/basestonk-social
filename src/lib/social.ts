@@ -20,8 +20,8 @@ function hash(str: string): number {
   return h >>> 0
 }
 
-function shortAddr(s: string, n = 6): string {
-  if (!s || s.length <= 2 * n + 3) return s || ''
+function shortAddr(s: string, n = 4): string {
+  if (!s || s.length <= 2 * n + 4) return s || ''
   return `${s.slice(0, n)}…${s.slice(-4)}`
 }
 

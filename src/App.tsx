@@ -79,20 +79,28 @@ function PostCard({ post }: { post: Post }) {
 
 function LeftRail({ crew }: { crew: string[] }) {
   return (
-    <div className="sticky top-16 hidden self-start lg:block lg:w-56">
-      <div className="mb-6">
-        <img src="/gem-blue-256.png" alt="BaseStonk gem" className="h-10 w-10 gem-glow" />
-      </div>
+    <div className="sticky top-20 hidden self-start lg:block lg:w-60">
+      <button className="mb-7 flex items-center gap-3 text-left">
+        <img src="/gem-blue-256.png" alt="BaseStonk gem" className="h-9 w-9 gem-glow" />
+        <div>
+          <div className="font-display text-lg font-black leading-none tracking-tight text-white">
+            BASE<span className="text-[#2f7bff]">STONK</span>
+          </div>
+          <div className="mt-1 text-[9px] font-semibold uppercase tracking-[0.28em] text-[#7c8aa5]">The Crew</div>
+        </div>
+      </button>
       <nav className="space-y-1 text-[13px] font-medium">
         {['Home', 'Trending stonks', 'Top degens', 'Your crew', 'P&L wall'].map((l) => (
-          <a key={l} href="#" className="flex items-center gap-3 rounded-lg px-3 py-2 text-[#9aa7cc] transition-colors hover:bg-[#0a1028] hover:text-white">{l}</a>
+          <a key={l} href="#" className="flex items-center gap-3 rounded-xl px-3 py-2 text-[#9aa7cc] transition-colors hover:bg-[#0a1028] hover:text-white">{l}</a>
         ))}
       </nav>
 
       <div className="mt-8">
-        <div className="mb-3 text-[10px] font-bold uppercase tracking-wider text-[#7c8aa5]">Your Crew</div>
+        <div className="mb-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#7c8aa5]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#2f7bff]" /> Your Crew
+        </div>
         {crew.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-[#1c2a4d] p-3 text-center text-[11px] text-[#7c8aa5]">
+          <div className="rounded-xl border border-dashed border-[#1c2a4d] p-3 text-center text-[11px] leading-relaxed text-[#7c8aa5]">
             Follow wallets to build your crew — their moves land here.
           </div>
         ) : (
@@ -226,13 +234,10 @@ export default function App() {
   return (
     <div className="bg-grid min-h-screen">
       <header className="sticky top-0 z-40 border-b border-[#1c2a4d] bg-[#050a1e]/85 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
-          <div className="flex items-center gap-3 lg:hidden">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-2.5">
+          <div className="flex items-center gap-2.5">
             <img src="/gem-blue-256.png" alt="" className="h-8 w-8" />
             <span className="font-display text-base font-bold tracking-tight text-white">BASE<span className="text-[#2f7bff]">STONK</span></span>
-          </div>
-          <div className="hidden font-display text-base font-bold tracking-tight text-white lg:block">
-            THE <span className="text-[#2f7bff]">CREW</span>
           </div>
           <div className="flex items-center gap-2 rounded-full border border-[#1c2a4d] bg-[#0a1028] px-3 py-1.5">
             <span className="h-2 w-2 rounded-full bg-[#34d399] pulse-dot" />
@@ -259,13 +264,15 @@ export default function App() {
             </div>
             <div className="mt-3 flex items-center justify-between border-t border-[#141f3d] pt-2.5">
               <span className="text-[10px] uppercase tracking-wider text-[#7c8aa5]">the crew sees you 👀</span>
-              <button className="rounded-full bg-gradient-to-r from-[#0051ff] to-[#2f7bff] px-4 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40" disabled={!draft.trim()}>Post</button>
+              <button className="btn-gem rounded-full px-5 py-1.5 text-[12px] font-semibold disabled:opacity-40" disabled={!draft.trim()}>Post</button>
             </div>
           </div>
 
           {/* hero line */}
           <div className="mb-4 px-1">
-            <h1 className="font-display text-2xl font-black tracking-tight text-white">The feed</h1>
+            <h1 className="font-display text-2xl font-black tracking-tight text-white">
+              The <span className="text-[#2f7bff]">feed</span>
+            </h1>
             <p className="text-[13px] text-[#7c8aa5]">Real moves from the BaseStonk crew — buys, sells, and flexes.</p>
           </div>
 
