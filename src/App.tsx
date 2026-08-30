@@ -11,11 +11,11 @@ import type { Post } from './lib/social'
 
 type View = 'home' | 'trending' | 'degens' | 'portfolio' | 'profile'
 
-const NAV: { key: View; label: string }[] = [
-  { key: 'home', label: 'Home' },
-  { key: 'trending', label: 'Trending' },
-  { key: 'degens', label: 'Degens' },
-  { key: 'portfolio', label: 'Portfolio' },
+const NAV: { key: View; label: string; icon: string }[] = [
+  { key: 'home', label: 'Feed', icon: '🔥' },
+  { key: 'trending', label: 'Trending', icon: '📈' },
+  { key: 'degens', label: 'Degens', icon: '🎯' },
+  { key: 'portfolio', label: 'Bag', icon: '🪝' },
 ]
 
 const AVATARS = ['💎', '🐸', '🦅', '🚀', '🔥', '🧠', '👑', '😈', '🫘', '📈']
@@ -508,8 +508,9 @@ function Composer({ identity, allStonks, tokens, onPosted, onOpenProfile }: { id
 
 // ─── User post card (social) ───────────────────────────────────────────────
 
-function UserPostCard({ post, onLike, onOpen, delay = 0 }: { post: UserPost; onLike: (id: number) => void; onOpen?: (wallet: string) => void; delay?: number }) {
-  const [liked, setLiked] = useState(false)
+function UserPostCard({ post, onLike, onOpen, delay = 0 }: { post: UserPost; onLike: (id: number) => Promise<void> | void; onOpen?: (wallet: string) => void; delay?: number }) {
+  const [liked, setLiked] = useState<'idle' | 'pending' | 'done'>('idle')
+  const likedActive = liked !== 'idle'
   return (
     <article className="card p-4 fade-up" style={{ animationDelay: `${delay}ms` }}>
       <div className="flex items-center gap-3">
@@ -536,10 +537,16 @@ function UserPostCard({ post, onLike, onOpen, delay = 0 }: { post: UserPost; onL
       <p className="mt-3 whitespace-pre-wrap break-words text-[14px] leading-relaxed text-white/90">{post.body}</p>
       <div className="mt-3 flex items-center gap-2">
         <button
-          onClick={() => { setLiked(true); onLike(post.id) }}
-          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-semibold transition-all ${liked ? 'border-[#ea6055]/60 bg-[#ea6055]/10 text-[#ea6055]' : 'border-[#1f2740] text-[#b3bdd4] hover:border-[#ea6055]/40 hover:text-[#ea6055]'}`}
+          onClick={() => {
+            if (liked !== 'idle') return
+            setLiked('pending')
+            const r = onLike(post.id)
+            if (r && typeof (r as Promise<void>).then === 'function') (r as Promise<void>).then(() => setLiked('done')).catch(() => setLiked('idle'))
+            else setLiked('done')
+          }}
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-semibold transition-all ${likedActive ? 'border-[#ea6055]/60 bg-[#ea6055]/10 text-[#ea6055]' : 'border-[#1f2740] text-[#b3bdd4] hover:border-[#ea6055]/40 hover:text-[#ea6055]'}`}
         >
-          {liked ? '♥' : '♡'} {Math.max(0, post.likes ?? 0) + (liked ? 1 : 0)}
+          {likedActive ? '♥' : '♡'} {Math.max(0, post.likes ?? 0) + (liked === 'pending' ? 1 : 0)}
         </button>
       </div>
     </article>
@@ -1123,10 +1130,8 @@ export default function App() {
   }, [])
 
   async function handleLike(id: number) {
-    try {
-      const updated = await likePost(id)
-      setUserPosts((prev) => prev.map((p) => (p.id === id ? { ...p, likes: updated.likes ?? 0 } : p)))
-    } catch { /* keep old */ }
+    const updated = await likePost(id)
+    setUserPosts((prev) => prev.map((p) => (p.id === id ? { ...p, likes: updated.likes ?? 0 } : p)))
   }
 
   if (loading) {
@@ -1174,21 +1179,22 @@ export default function App() {
         </div>
       </header>
 
-      {/* mobile tab bar */}
-      <div className="z-30 border-b border-[#1f2740] bg-[#050a1e]/80 md:hidden">
-        <div className="mx-auto flex max-w-7xl gap-1 px-3 py-2">
+      {/* mobile bottom tab bar (app-style) */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#1f2740] bg-[#050a1e]/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
+        <div className="mx-auto flex max-w-lg gap-1 px-2 py-1.5">
           {NAV.map((item) => (
             <button
               key={item.key} onClick={() => setView(item.key)}
-              className={`flex-1 rounded-full px-2 py-1.5 text-[12px] font-semibold transition-colors ${view === item.key ? 'bg-white text-[#09090b]' : 'text-[#b3bdd4]'}`}
+              className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[10px] font-bold transition-all ${view === item.key ? 'bg-[#0052ff]/20 text-[#0052ff]' : 'text-[#b3bdd4] hover:bg-[#0d142b]/40 hover:text-white'}`}
             >
+              <span className={`text-[17px] leading-none ${view === item.key ? 'drop-shadow-[0_0_8px_rgba(0,82,255,0.8)]' : 'grayscale-[35%]'}`}>{item.icon}</span>
               {item.label}
             </button>
           ))}
         </div>
-      </div>
+      </nav>
 
-      <main className="relative z-10 mx-auto max-w-7xl gap-6 px-4 py-6">
+      <main className="relative z-10 mx-auto max-w-7xl gap-6 px-4 pb-28 pt-6 md:pb-6">
         {view === 'trending' && <TrendingView tokens={tokens} />}
         {view === 'degens' && <DegensView rows={leader} onOpen={openProfile} />}
         {view === 'portfolio' && <PortfolioView identity={identity} tokens={tokens} leader={leader} posts={posts} onPosted={loadAll} onOpen={openProfile} />}
@@ -1267,7 +1273,7 @@ export default function App() {
         )}
       </main>
 
-      <footer className="relative z-10 border-t border-[#1f2740] py-8 text-center">
+      <footer className="relative z-10 border-t border-[#1f2740] py-8 pb-24 text-center md:pb-8">
         <div className="mx-auto max-w-xl px-4 text-[11px] text-[#b3bdd4]">
           An independent community layer for the BaseStonk launchpad on Base.
           Not affiliated with Coinbase or Base. Informational only.
