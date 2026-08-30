@@ -31,16 +31,16 @@ function PostCard({ post }: { post: Post }) {
   return (
     <article className="card overflow-hidden">
       {/* author row */}
-      <div className="flex items-start gap-3 px-4 pt-4">
-        <Avatar addr={post.trader} size={42} />
+      <div className="flex items-start gap-4 px-6 pt-5">
+        <Avatar addr={post.trader} size={52} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="font-display text-sm font-bold text-white">{post.traderShort}</span>
+          <div className="flex items-center gap-2.5">
+            <span className="font-display text-lg font-bold text-white">{post.traderShort}</span>
             {post.streak && post.streak > 2 && (
-              <span className="rounded-full bg-[#f5c847]/15 px-2 py-0.5 text-[10px] font-bold text-[#f5c847]">🔥 {post.streak} streak</span>
+              <span className="rounded-full bg-[#f5c847]/15 px-2.5 py-0.5 text-[11px] font-bold text-[#f5c847]">🔥 {post.streak} streak</span>
             )}
           </div>
-          <div className="flex items-center gap-2 text-[11px] text-[#b3bdd4]">
+          <div className="mt-0.5 flex items-center gap-2 text-[12px] text-[#b3bdd4]">
             <a href={`https://basescan.org/address/${post.trader}`} target="_blank" rel="noreferrer" className="font-mono hover:text-[#e4e4e7]">{post.trader}</a>
             <span>·</span>
             <span>{relativeTime(post.createdAt)}</span>
@@ -49,8 +49,8 @@ function PostCard({ post }: { post: Post }) {
       </div>
 
       {/* the move */}
-      <div className="mt-3 px-4">
-        <p className="text-[15px] leading-relaxed text-white">
+      <div className="mt-4 px-6">
+        <p className="text-[17px] leading-relaxed text-white">
           <span className={`font-display font-bold ${verbColor}`}>{verb}</span>{' '}
           <span className="font-extrabold text-[#0052ff]">${post.tokenSymbol}</span>{' '}
           <span className="text-[#b3bdd4]">{fmtUsd(post.volumeUsd)} @ {fmtUsd(post.priceUsd, 5)}</span>
@@ -59,16 +59,16 @@ function PostCard({ post }: { post: Post }) {
 
       {/* P&L flex strip */}
       {post.kind === 'flex' && (
-        <div className={`mx-4 mt-3 flex items-center justify-between rounded-xl border px-4 py-3 ${flexUp ? 'border-[#45d68f]/25 bg-[#45d68f]/8' : 'border-[#ea6055]/25 bg-[#ea6055]/8'}`}>
+        <div className={`mx-6 mt-4 flex items-center justify-between rounded-xl border px-5 py-4 ${flexUp ? 'border-[#45d68f]/25 bg-[#45d68f]/8' : 'border-[#ea6055]/25 bg-[#ea6055]/8'}`}>
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-[#b3bdd4]">P&L on ${post.tokenSymbol}</div>
-            <div className={`font-display text-lg font-black ${flexUp ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{flexUp ? '+' : ''}{post.pnlPct}%</div>
+            <div className="text-[11px] uppercase tracking-wider text-[#b3bdd4]">P&L on ${post.tokenSymbol}</div>
+            <div className={`font-display text-2xl font-black leading-tight ${flexUp ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{flexUp ? '+' : ''}{post.pnlPct}%</div>
           </div>
         </div>
       )}
 
       {/* footer actions */}
-      <div className="mt-3 flex items-center justify-between border-t border-[#1f2740] px-4 py-2.5 text-[11px] text-[#b3bdd4]">
+      <div className="mt-4 flex items-center justify-between border-t border-[#1f2740] px-6 py-3 text-[12px] text-[#b3bdd4]">
         <a href={`https://basescan.org/address/${post.trader}`} target="_blank" rel="noreferrer" className="font-mono transition-colors hover:text-[#e4e4e7]">view wallet</a>
         <a href={`https://basescan.org/tx/${post.txn}`} target="_blank" rel="noreferrer" className="font-mono transition-colors hover:text-[#e4e4e7]">tx {post.txn.slice(0, 8)}…</a>
       </div>
@@ -76,27 +76,13 @@ function PostCard({ post }: { post: Post }) {
   )
 }
 
-// ─── Left rail / brand ─────────────────────────────────────────────────────
-
-function LeftRail() {
-  return (
-    <div className="sticky top-20 hidden self-start lg:block lg:w-60">
-      <nav className="space-y-1 text-[13px] font-medium">
-        {['Home', 'Trending stonks', 'Top degens', 'P&L wall'].map((l) => (
-          <a key={l} href="#" className="flex items-center gap-3 rounded-xl px-3 py-2 text-[#b3bdd4] transition-colors hover:bg-[#0d142b] hover:text-white">{l}</a>
-        ))}
-      </nav>
-    </div>
-  )
-}
-
 // ─── Hero stats (match BaseStonk stat tiles) ────────────────────────────────
 
 function StatTile({ label, value, cyan = false }: { label: string; value: string; cyan?: boolean }) {
   return (
-    <div className="card px-4 py-3">
-      <div className="text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">{label}</div>
-      <div className={`font-display text-2xl font-black leading-tight ${cyan ? 'stat-grad-cyan' : 'stat-grad'}`}>{value}</div>
+    <div className="card px-5 py-4">
+      <div className="text-[11px] font-bold uppercase tracking-wider text-[#b3bdd4]">{label}</div>
+      <div className={`font-display text-[28px] font-black leading-tight ${cyan ? 'stat-grad-cyan' : 'stat-grad'}`}>{value}</div>
     </div>
   )
 }
@@ -255,18 +241,16 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto flex max-w-6xl gap-8 px-4 py-6">
-        <LeftRail />
-
+      <main className="mx-auto flex max-w-7xl gap-8 px-4 py-6">
         {/* CENTER: hero + the feed */}
         <section className="min-w-0 flex-1">
           {/* hero */}
-          <div className="mb-5">
-            <h1 className="font-display text-4xl font-black tracking-tight text-white">
+          <div className="mb-6">
+            <h1 className="font-display text-5xl font-black tracking-tight text-white">
               The <span className="text-[#0052ff]">feed</span>
             </h1>
-            <p className="mt-1 text-[14px] font-semibold text-white">Real moves from the BaseStonk crew — live on Base.</p>
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <p className="mt-2 text-[16px] font-semibold text-white">Real moves from the BaseStonk crew — live on Base.</p>
+            <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
               <StatTile label="24h volume" value={fmtUsd(stats.vol24)} />
               <StatTile label="Live stonks" value={`${stats.tokens}`} />
               <StatTile label="Moves today" value={`${stats.moves}`} />
@@ -275,23 +259,23 @@ export default function App() {
           </div>
 
           {/* composer */}
-          <div className="card mb-4 p-3">
+          <div className="card mb-5 p-4">
             <div className="flex items-center gap-3">
-              <Avatar addr="0xYOU" size={38} />
+              <Avatar addr="0xYOU" size={44} />
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="What's the play today? …"
-                className="w-full bg-transparent text-sm text-white placeholder-[#5b6b8f] outline-none"
+                className="w-full bg-transparent text-base text-white placeholder-[#5b6b8f] outline-none"
               />
             </div>
-            <div className="mt-3 flex items-center justify-between border-t border-[#1f2740] pt-2.5">
-              <span className="text-[10px] uppercase tracking-wider text-[#b3bdd4]">the crew sees you 👀</span>
-              <button className="btn-gem rounded-full px-5 py-1.5 text-[12px] font-semibold disabled:opacity-40" disabled={!draft.trim()}>Post</button>
+            <div className="mt-3 flex items-center justify-between border-t border-[#1f2740] pt-3">
+              <span className="text-[11px] uppercase tracking-wider text-[#b3bdd4]">the crew sees you 👀</span>
+              <button className="btn-gem rounded-full px-6 py-2 text-[13px] font-semibold disabled:opacity-40" disabled={!draft.trim()}>Post</button>
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             {err && (
               <div className="rounded-xl border border-[#ea6055]/40 bg-[#ea6055]/10 p-3 text-sm text-[#ea6055]">
                 Some data is temporarily unavailable ({err}). Retrying automatically…
