@@ -372,7 +372,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         let { data, error } = await sb.from('accounts').select('wallet, handle, avatar').eq('wallet', wallet).maybeSingle()
         if (error) return res.status(500).json({ error: error.message })
         // try bio if the column exists
-        const { data: bioRow } = await sb.from('accounts').select('bio').eq('wallet', wallet).maybeSingle().catch(() => ({ data: null }))
+        let bioRow: any = null
+        try { const r = await sb.from('accounts').select('bio').eq('wallet', wallet).maybeSingle(); bioRow = r.data || null } catch { /* bio column not present */ }
         if (bioRow) data = { ...data, bio: bioRow.bio }
         // follower/following counts
         const [{ count: followers }, { count: following }] = await Promise.all([
