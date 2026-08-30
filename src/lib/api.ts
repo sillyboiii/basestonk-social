@@ -155,6 +155,7 @@ export interface UserPost {
   kind?: 'post' | 'shot' | string | null
   token_address?: string | null
   entry_price?: number | string | null
+  entry_mcap?: number | string | null
   handle?: string | null
   avatar?: string | null
 }
@@ -178,6 +179,9 @@ export interface Account {
   wallet: string
   handle: string | null
   avatar: string | null
+  bio: string | null
+  followers: number
+  following: number
 }
 
 export function fmtNum(n: number): string {

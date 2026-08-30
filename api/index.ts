@@ -279,7 +279,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           accs = data || []
         } catch { /* accounts table may not exist yet */ }
         const accMap = new Map((accs || []).map((a) => [a.wallet, a]))
-        return res.json(rows.map((p) => ({ ...p, entry_price: p.entry_price != null ? Number(p.entry_price) : null, handle: accMap.get(p.author)?.handle || null, avatar: accMap.get(p.author)?.avatar || null })))
+        return res.json(rows.map((p) => ({ ...p, entry_price: p.entry_price != null ? Number(p.entry_price) : null, entry_mcap: p.entry_mcap != null ? Number(p.entry_mcap) : null, handle: accMap.get(p.author)?.handle || null, avatar: accMap.get(p.author)?.avatar || null })))
       }
 
       // POST { author, body, tokenSymbol?, tokenImage?, kind?, tokenAddress? }
@@ -289,23 +289,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!author || !clean) return res.status(400).json({ error: 'author and body are required' })
         if (clean.length > 280) return res.status(400).json({ error: 'body too long (max 280)' })
         let entryPrice: number | null = null
+        let entryMcap: number | null = null
+        let shotImage: string | null = tokenImage ? String(tokenImage) : null
         if (kind === 'shot') {
           if (!tokenAddress || !tokenSymbol) return res.status(400).json({ error: 'a shot needs a tagged token' })
           const pr = await jfetchCached<any>(`/api/launchpad/tokens/${tokenAddress}`, 5000, 3, 5000).catch(() => null)
-          entryPrice = Number(pr?.token?.priceUsd)
+          const tk = pr?.token
+          entryPrice = Number(tk?.priceUsd)
+          entryMcap = Number(tk?.marketcapUsd) || null
           if (!entryPrice || !isFinite(entryPrice)) return res.status(503).json({ error: 'could not price the token for your call — retry' })
+          shotImage = shotImage || (tk?.imageUrl ? String(tk.imageUrl) : tk?.logoUrl ? String(tk.logoUrl) : null)
         }
         const { data, error } = await sb.from('posts').insert({
           author: String(author),
           body: clean,
           token_symbol: tokenSymbol ? String(tokenSymbol) : null,
-          token_image: tokenImage ? String(tokenImage) : null,
+          token_image: shotImage,
           kind: kind === 'shot' ? 'shot' : 'post',
           token_address: tokenAddress ? String(tokenAddress) : null,
           entry_price: entryPrice,
+          entry_mcap: entryMcap,
         }).select().single()
         if (error) return res.status(500).json({ error: error.message })
-        return res.json({ ...data, entry_price: data?.entry_price != null ? Number(data.entry_price) : null })
+        return res.json({ ...data, entry_price: data?.entry_price != null ? Number(data.entry_price) : null, entry_mcap: data?.entry_mcap != null ? Number(data.entry_mcap) : null })
       }
     }
 
@@ -320,14 +326,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const byAddr = new Map<string, number>()
       const bySym = new Map<string, number>()
       for (const t of data?.tokens || []) {
-        if (t?.address) byAddr.set(String(t.address).toLowerCase(), Number(t.priceUsd) || 0)
-        if (t?.symbol) bySym.set(String(t.symbol).toUpperCase(), Number(t.priceUsd) || 0)
+        const mcap = Number(t.marketcapUsd) || Number(t.priceUsd) || 0
+        if (t?.address) byAddr.set(String(t.address).toLowerCase(), mcap)
+        if (t?.symbol) bySym.set(String(t.symbol).toUpperCase(), mcap)
       }
       const { data: shots, error } = await sb.from('posts').select('*').eq('kind', 'shot').order('created_at', { ascending: false }).limit(500)
       if (error) return res.json({ rows: [], maxHitRate: 1 })
       const agg = new Map<string, any>()
       for (const p of (shots as any[]) || []) {
-        const entry = Number(p.entry_price)
+        const entry = Number(p.entry_mcap) || Number(p.entry_price)
         if (!entry || !p.author) continue
         const cur = byAddr.get(String(p.token_address || '').toLowerCase()) || (p.token_symbol ? bySym.get(String(p.token_symbol).toUpperCase()) || 0 : 0)
         const move = cur > 0 ? ((cur - entry) / entry) * 100 : null
@@ -362,14 +369,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const u = new URL(url, 'http://x')
         const wallet = u.searchParams.get('wallet') || ''
         if (!wallet) return res.json({ account: null })
-        const { data, error } = await sb.from('accounts').select('wallet, handle, avatar').eq('wallet', wallet).maybeSingle()
+        const { data, error } = await sb.from('accounts').select('wallet, handle, avatar, bio').eq('wallet', wallet).maybeSingle()
         if (error) return res.status(500).json({ error: error.message })
-        return res.json({ account: data || null })
+        // follower/following counts
+        const [{ count: followers }, { count: following }] = await Promise.all([
+          sb.from('follows').select('*', { count: 'exact', head: true }).eq('target', wallet),
+          sb.from('follows').select('*', { count: 'exact', head: true }).eq('follower', wallet),
+        ])
+        return res.json({ account: data ? { ...data, followers: followers || 0, following: following || 0 } : null })
       }
 
-      // POST { wallet, handle, avatar? } — upsert
+      // POST { wallet, handle, avatar?, bio? } — upsert
       if (req.method === 'POST') {
-        const { wallet, handle, avatar } = req.body || {}
+        const { wallet, handle, avatar, bio } = req.body || {}
         if (!wallet) return res.status(400).json({ error: 'wallet is required' })
         const clean = String(handle || '').trim()
         if (clean.length > 24) return res.status(400).json({ error: 'handle too long (max 24)' })
@@ -377,6 +389,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           wallet: String(wallet),
           handle: clean || null,
           avatar: avatar ? String(avatar) : null,
+          bio: bio ? String(bio).slice(0, 160) : null,
         }).select().single()
         if (error) return res.status(500).json({ error: error.message })
         return res.json(data)

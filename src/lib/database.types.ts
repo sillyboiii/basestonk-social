@@ -38,6 +38,7 @@ export type Database = {
           kind: string
           token_address: string | null
           entry_price: number | null
+          entry_mcap: number | null
         }
         Insert: {
           id?: number
@@ -50,6 +51,7 @@ export type Database = {
           kind?: string
           token_address?: string | null
           entry_price?: number | null
+          entry_mcap?: number | null
         }
         Update: {
           id?: number
@@ -62,6 +64,7 @@ export type Database = {
           kind?: string
           token_address?: string | null
           entry_price?: number | null
+          entry_mcap?: number | null
         }
         Relationships: []
       }
@@ -70,18 +73,21 @@ export type Database = {
           wallet: string
           handle: string | null
           avatar: string | null
+          bio: string | null
           created_at: string
         }
         Insert: {
           wallet: string
           handle?: string | null
           avatar?: string | null
+          bio?: string | null
           created_at?: string
         }
         Update: {
           wallet?: string
           handle?: string | null
           avatar?: string | null
+          bio?: string | null
           created_at?: string
         }
         Relationships: []

@@ -11,13 +11,45 @@ import type { Post } from './lib/social'
 
 type View = 'home' | 'trending' | 'degens' | 'callers' | 'portfolio' | 'profile'
 
-const NAV: { key: View; label: string; icon: string }[] = [
-  { key: 'home', label: 'Feed', icon: '🔥' },
-  { key: 'trending', label: 'Trending', icon: '📈' },
-  { key: 'degens', label: 'Degens', icon: '🎯' },
-  { key: 'callers', label: 'Callers', icon: '👑' },
-  { key: 'portfolio', label: 'Bag', icon: '🪝' },
+const NAV: { key: View; label: string }[] = [
+  { key: 'home', label: 'Feed' },
+  { key: 'trending', label: 'Trending' },
+  { key: 'degens', label: 'Degens' },
+  { key: 'callers', label: 'Callers' },
+  { key: 'portfolio', label: 'Bag' },
 ]
+
+function TabGlyph({ k }: { k: string }) {
+  const common = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+  switch (k) {
+    case 'home': return (
+      <svg {...common}>
+        <path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /><path d="M9 21v-6h6v6" />
+      </svg>
+    )
+    case 'trending': return (
+      <svg {...common}>
+        <path d="m22 7-8.5 8.5-5-5L2 17" /><path d="M16 7h6v6" />
+      </svg>
+    )
+    case 'degens': return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1" />
+      </svg>
+    )
+    case 'callers': return (
+      <svg {...common}>
+        <path d="M3 7l4 4.5L12 5l5 6.5L21 7l-1.5 12h-15z" />
+      </svg>
+    )
+    case 'portfolio': return (
+      <svg {...common}>
+        <path d="M6 7h12l1.5 14h-15z" /><path d="M9 10V6a3 3 0 0 1 6 0v4" />
+      </svg>
+    )
+    default: return null
+  }
+}
 
 const AVATARS = ['💎', '🐸', '🦅', '🚀', '🔥', '🧠', '👑', '😈', '🫘', '📈']
 
@@ -263,9 +295,9 @@ function probeTicker(body: string, caret: number): { start: number; query: strin
 // ─── Composer: actually post, with inline $ ticker autocomplete ────────────
 
 function Composer({ identity, allStonks, tokens, onPosted, onOpenProfile }: { identity: string; allStonks: Token[]; tokens: Token[]; onPosted: () => void; onOpenProfile: (wallet: string) => void }) {
+const [mode, setMode] = useState<'post' | 'shot'>('post')
   const [body, setBody] = useState('')
   const [tag, setTag] = useState<Token | null>(null)
-  const [shot, setShot] = useState(false)
   const [caret, setCaret] = useState(0)
   const [tickPos, setTickPos] = useState<{ x: number; y: number; line?: number; flip?: boolean } | null>(null)
   const [picked, setPicked] = useState<string | null>(null)
@@ -280,6 +312,8 @@ function Composer({ identity, allStonks, tokens, onPosted, onOpenProfile }: { id
   const fileRef = useRef<HTMLInputElement>(null)
   const escRef = useRef(false)
   const [cropFile, setCropFile] = useState<File | null>(null)
+
+  const shot = mode === 'shot'
 
   const ticker = useMemo(() => probeTicker(body, caret), [body, caret])
   const matches = useMemo(() => {
@@ -306,16 +340,6 @@ function Composer({ identity, allStonks, tokens, onPosted, onOpenProfile }: { id
     setTickPos({ ...c, line, flip: c.y + line + 320 > spaceBelow })
   }
 
-  useEffect(() => {
-    function onDoc(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setTickPos(null)
-      }
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [])
-
   function pickToken(t: Token) {
     if (!taRef.current || !ticker) return
     const next = body.slice(0, ticker.start) + `$${t.symbol}` + body.slice(caret)
@@ -334,13 +358,14 @@ function Composer({ identity, allStonks, tokens, onPosted, onOpenProfile }: { id
   async function submit() {
     const clean = body.trim()
     if (!clean || submitting) return
+    if (shot && !tag) { setError('pick a token for your shot'); return }
     setSubmitting(true)
     setError(null)
     try {
       await createPost({ author: identity, body: clean, tokenSymbol: tag?.symbol, tokenImage: tag?.imageUrl, kind: shot ? 'shot' : 'post', tokenAddress: tag?.address })
       setBody('')
       setTag(null)
-      setShot(false)
+      setMode('post')
       setTickPos(null)
       setPicked(null)
       onPosted()
@@ -450,7 +475,7 @@ function Composer({ identity, allStonks, tokens, onPosted, onOpenProfile }: { id
               onClick={refreshCaret}
               onFocus={refreshCaret}
               rows={3}
-              placeholder={'Type your call… just type $ then the ticker to tag it'}
+              placeholder={shot ? 'Call your shot… type $ then the ticker' : 'Type your call… just type $ then the ticker to tag it'}
               className="w-full resize-none rounded-xl border border-[#1f2740] bg-[#050a1e]/60 p-3 text-[14px] text-white placeholder-[#3a4a75] outline-none transition-colors focus:border-[#0052ff]"
             />
             {showTick && tickPos && (
@@ -482,22 +507,38 @@ function Composer({ identity, allStonks, tokens, onPosted, onOpenProfile }: { id
 
           <div className="mt-2 flex items-center justify-between gap-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <div className="relative flex items-center gap-1 rounded-full bg-[#0d142b] p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setMode('post')}
+                  className={`relative z-10 rounded-full px-3 py-1.5 text-[11px] font-bold transition-all ${mode === 'post' ? 'bg-white text-[#09090b] shadow-sm' : 'text-[#b3bdd4] hover:text-white'}`}
+                >
+                  Post
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('shot')}
+                  className={`relative z-10 rounded-full px-3 py-1.5 text-[11px] font-bold transition-all ${mode === 'shot' ? 'bg-gradient-to-r from-[#ff6ec7] to-[#7b5cff] text-white shadow-[0_0_12px_rgba(255,110,199,0.4)]' : 'text-[#b3bdd4] hover:text-white'}`}
+                >
+                  🎯 Shot
+                </button>
+              </div>
               {tag && (
-                <button onClick={() => { setTag(null); setShot(false) }} className="flex items-center gap-1.5 rounded-full bg-[#0d142b] px-2 py-1 text-[11px] text-[#b3bdd4] hover:text-white">
+                <button onClick={() => { setTag(null); setMode('post') }} className="flex items-center gap-1.5 rounded-full bg-[#0d142b] px-2 py-1 text-[11px] text-[#b3bdd4] hover:text-white">
                   <CoinGlyph src={tag.imageUrl || tag.logoUrl} symbol={tag.symbol} size={16} ring={false} />
                   <span className="font-bold text-[#0052ff]">${tag.symbol}</span>
                   ✕
                 </button>
               )}
-              {tag && (
-                <button
-                  onClick={() => setShot((v) => !v)}
-                  className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-all ${shot ? 'bg-gradient-to-r from-[#ff6ec7] to-[#7b5cff] text-white shadow-[0_0_14px_rgba(255,110,199,0.45)]' : 'border border-[#1f2740] text-[#b3bdd4] hover:border-[#7b5cff]/60 hover:text-white'}`}
-                >
-                  🎯 {shot ? 'Called' : 'Call it'}
-                </button>
+              {shot && !tag && (
+                <span className="text-[10px] text-[#ff6ec7] font-semibold">pick a token to call</span>
               )}
-              <span className="text-[10px] text-[#3a4a75]">$ = tag token{shot ? ' · entry price locks in when you post' : ''}</span>
+              {!shot && (
+                <span className="text-[10px] text-[#3a4a75]">$ = tag token</span>
+              )}
+              {shot && tag && (
+                <span className="text-[10px] text-[#3a4a75]">market cap locks in when you call</span>
+              )}
             </div>
             <span className={`shrink-0 text-[11px] font-semibold ${body.length >= 240 ? 'text-[#ea6055]' : 'text-[#3a4a75]'}`}>{body.length}/280</span>
           </div>
@@ -505,10 +546,10 @@ function Composer({ identity, allStonks, tokens, onPosted, onOpenProfile }: { id
           <div className="mt-3 flex justify-end">
             <button
               onClick={submit}
-              disabled={!body.trim() || submitting || (shot && !tag)}
-              className={`shimmer-btn px-6 py-2 text-[13px] font-bold disabled:opacity-40 ${shot ? 'bg-gradient-to-r from-[#ff6ec7] to-[#7b5cff] text-white hover:brightness-110' : 'btn-gem'}`}
+              disabled={!body.trim() || submitting || (mode === 'shot' && !tag)}
+              className={`shimmer-btn px-6 py-2 text-[13px] font-bold disabled:opacity-40 ${mode === 'shot' ? 'bg-gradient-to-r from-[#ff6ec7] to-[#7b5cff] text-white hover:brightness-110' : 'btn-gem'}`}
             >
-              {submitting ? (shot ? 'Calling…' : 'Posting…') : shot ? 'Call shot 🎯' : 'Post'}
+              {submitting ? (mode === 'shot' ? 'Calling…' : 'Posting…') : mode === 'shot' ? 'Call shot 🎯' : 'Post'}
             </button>
           </div>
         </div>
@@ -526,46 +567,66 @@ function UserPostCard({ post, onLike, onOpen, delay = 0, tokens }: { post: UserP
   const prices = useMemo(() => {
     const byAddr = new Map<string, number>()
     const bySym = new Map<string, number>()
+    const mcapByAddr = new Map<string, number>()
+    const mcapBySym = new Map<string, number>()
     for (const t of tokens || []) {
-      if (t.address) byAddr.set(t.address.toLowerCase(), t.priceUsd)
-      if (t.symbol) bySym.set(t.symbol.toUpperCase(), t.priceUsd)
+      if (t.address) { byAddr.set(t.address.toLowerCase(), t.priceUsd); mcapByAddr.set(t.address.toLowerCase(), t.marketcapUsd) }
+      if (t.symbol) { bySym.set(t.symbol.toUpperCase(), t.priceUsd); mcapBySym.set(t.symbol.toUpperCase(), t.marketcapUsd) }
     }
-    return { byAddr, bySym }
+    return { byAddr, bySym, mcapByAddr, mcapBySym }
   }, [tokens])
 
-  const entry = post.kind === 'shot' && post.entry_price != null ? Number(post.entry_price) : null
-  const cur = entry ? prices.byAddr.get(String(post.token_address || '').toLowerCase()) || prices.bySym.get(String(post.token_symbol || '').toUpperCase()) || 0 : 0
+  const entry = post.kind === 'shot' && post.entry_mcap != null ? Number(post.entry_mcap) : null
+  const cur = entry ? prices.mcapByAddr.get(String(post.token_address || '').toLowerCase()) || prices.mcapBySym.get(String(post.token_symbol || '').toUpperCase()) || 0 : 0
   const move = entry != null && cur > 0 ? ((cur - entry) / entry) * 100 : null
   const shotUp = move != null && move >= 0
+  const isShot = post.kind === 'shot'
   return (
-    <article className="card p-4 fade-up" style={{ animationDelay: `${delay}ms` }}>
-      <div className="flex items-center gap-3">
-        <button onClick={() => onOpen?.(post.author)} title={`Open ${post.author}`} className="shrink-0 transition-transform hover:scale-105">
-          <Avatar wallet={post.author} avatar={post.avatar} size={40} />
+    <article
+      className={`card p-4 fade-up ${isShot ? 'relative overflow-hidden' : ''}`}
+      style={{
+        animationDelay: `${delay}ms`,
+        ...(isShot ? {
+          border: '1px solid rgba(123,92,255,0.55)',
+          boxShadow: 'inset 0 0 0 1px rgba(255,110,199,0.28), 0 8px 30px rgba(123,92,255,0.13)',
+          background: 'linear-gradient(180deg, rgba(255,110,199,0.06), rgba(123,92,255,0.12)), linear-gradient(180deg, #0c1531, #0a1229)',
+        } : {}),
+      }}
+    >
+      {isShot && <div className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-[#ff6ec7] to-[#7b5cff]" />}
+      <div className="flex items-start gap-3">
+        <button onClick={() => onOpen?.(post.author)} title={`Open ${post.author}`} className="shrink-0 mt-0.5 transition-transform hover:scale-105">
+          <Avatar wallet={post.author} avatar={post.avatar} size={44} />
         </button>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-baseline gap-2">
             {post.handle ? (
-              <button onClick={() => onOpen?.(post.author)} className="truncate text-[13px] font-bold text-white transition-colors hover:text-[#0052ff]">@{post.handle}</button>
+              <button onClick={() => onOpen?.(post.author)} className="truncate text-[14px] font-black text-white transition-colors hover:text-[#0052ff]">@{post.handle}</button>
             ) : (
-              <span className="group"><CopyAddr addr={post.author} short={6} className="text-[13px] font-semibold text-white/90" /></span>
+              <span className="group"><CopyAddr addr={post.author} short={6} className="text-[14px] font-semibold text-white/90" /></span>
             )}
+            <span className="text-[11px] text-[#3a4a75] shrink-0">{relativeTime(post.created_at)}</span>
           </div>
-          <button onClick={() => onOpen?.(post.author)} className="text-[11px] text-[#b3bdd4] transition-colors hover:text-white">{relativeTime(post.created_at)} · {shortAddr(post.author, 8)}</button>
+          <button onClick={() => onOpen?.(post.author)} className="mt-0.5 text-[11px] text-[#6b7a9a] transition-colors hover:text-white font-mono">{shortAddr(post.author, 8)}</button>
         </div>
         {post.token_symbol && (
-          <div className="flex items-center gap-1.5 rounded-full border border-[#0052ff]/40 bg-[#0d142b] px-2.5 py-1 pop-in">
+          <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 pop-in shrink-0 ${isShot ? 'border border-[#7b5cff]/50 bg-gradient-to-r from-[#ff6ec7]/10 to-[#7b5cff]/15' : 'border border-[#0052ff]/40 bg-[#0d142b]'}`}>
             <CoinGlyph src={post.token_image || undefined} symbol={post.token_symbol} size={18} ring={false} />
-            <span className="text-[12px] font-bold text-[#0052ff]">${post.token_symbol}</span>
+            <span className={`text-[12px] font-bold ${isShot ? 'bg-gradient-to-r from-[#ff6ec7] to-[#7b5cff] bg-clip-text text-transparent' : 'text-[#0052ff]'}`}>{isShot ? '🎯 ' : ''}${post.token_symbol}</span>
+            {isShot && <span className="text-[9px] font-black uppercase tracking-wider text-[#7b5cff]/80">shot</span>}
           </div>
         )}
       </div>
       <p className="mt-3 whitespace-pre-wrap break-words text-[14px] leading-relaxed text-white/90">{post.body}</p>
       {entry != null && (
-        <div className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2 ${shotUp ? 'bg-[#45d68f]/10 ring-1 ring-[#45d68f]/30' : 'bg-[#ea6055]/10 ring-1 ring-[#ea6055]/30'}`}>
-          <span className="rounded-full bg-gradient-to-r from-[#ff6ec7] to-[#7b5cff] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-[0_0_10px_rgba(255,110,199,0.4)]">🎯 shot @ {fmtUsd(entry, 6)}</span>
+        <div className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2 text-[12px] ${shotUp ? 'bg-[#45d68f]/8 ring-1 ring-[#45d68f]/25' : 'bg-[#ea6055]/8 ring-1 ring-[#ea6055]/25'}`}>
+          <span className="flex items-center gap-1.5 font-semibold text-[#b3bdd4]">
+            <span className="text-[13px]">🎯</span> called
+            <span className="font-black text-white">{fmtUsd(entry)}</span>
+            <span className="text-[#3a4a75]">MCap</span>
+          </span>
           {move != null
-            ? <span className={`font-mono text-[12px] font-extrabold ${shotUp ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{shotUp ? '▲' : '▼'} {Math.abs(move).toFixed(1)}% {shotUp ? 'hit' : 'since call'}</span>
+            ? <span className={`font-mono font-extrabold ${shotUp ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{shotUp ? '▲' : '▼'} {Math.abs(move).toFixed(1)}% {shotUp ? 'hit' : 'since call'}</span>
             : <span className="text-[11px] text-[#b3bdd4]">…pricing token</span>}
         </div>
       )}
@@ -1039,7 +1100,7 @@ function CallersView({ rows, maxHitRate, onOpen }: { rows: CallerRow[]; maxHitRa
           <div className="card p-8 text-center pop-in">
             <div className="text-2xl">🎯</div>
             <div className="mt-2 text-[14px] font-semibold text-white">No shots on record yet.</div>
-            <div className="mt-1 text-[12px] text-[#b3bdd4]">Be the first — tag a token in the composer and hit Call 🎯. Entry price locks in at post time.</div>
+            <div className="mt-1 text-[12px] text-[#b3bdd4]">Be the first — tag a token in the composer and hit Call 🎯. Market cap locks in at post time.</div>
           </div>
         )}
       </div>
@@ -1054,17 +1115,41 @@ function ProfileView({ identity, wallet, followed, userPosts, feedPosts, tokens,
   onFollow: () => void; onLike: (id: number) => Promise<void> | void; onBack: () => void; onOpen: (wallet: string) => void;
 }) {
   const [acc, setAcc] = useState<Account | null>(null)
+  const [tab, setTab] = useState<'posts' | 'shots' | 'trades' | 'followers' | 'following'>('posts')
+  const [editingBio, setEditingBio] = useState(false)
+  const [bioInput, setBioInput] = useState('')
+  const own = wallet === identity
+
   useEffect(() => {
     let on = true
-    fetchAccount(wallet).then((a) => { if (on) setAcc(a) }).catch(() => null)
+    fetchAccount(wallet).then((a) => { if (on) { setAcc(a); setBioInput(a?.bio || '') } }).catch(() => null)
     return () => { on = false }
   }, [wallet])
 
   const myPosts = useMemo(() => userPosts.filter((p) => p.author === wallet), [userPosts, wallet])
+  const myShots = useMemo(() => myPosts.filter((p) => p.kind === 'shot'), [myPosts])
+  const myRegularPosts = useMemo(() => myPosts.filter((p) => p.kind !== 'shot'), [myPosts])
   const theirTrades = useMemo(() => feedPosts.filter((p) => p.trader === wallet), [feedPosts, wallet])
   const handle = acc?.handle || myPosts.find((p) => p.handle)?.handle || null
   const avatar = acc?.avatar || myPosts.find((p) => p.avatar)?.avatar || ''
-  const own = wallet === identity
+
+  const tabs = [
+    { key: 'posts', label: 'Posts', count: myRegularPosts.length },
+    { key: 'shots', label: 'Shots', count: myShots.length },
+    { key: 'trades', label: 'Trades', count: theirTrades.length },
+    { key: 'followers', label: 'Followers', count: acc?.followers || 0 },
+    { key: 'following', label: 'Following', count: acc?.following || 0 },
+  ] as const
+
+  async function saveBio() {
+    if (!own) return
+    const res = await fetch('/api/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wallet, bio: bioInput }),
+    })
+    if (res.ok) { setAcc((a) => a ? { ...a, bio: bioInput } : null); setEditingBio(false) }
+  }
 
   return (
     <div className="fade-in flex gap-6">
@@ -1072,47 +1157,82 @@ function ProfileView({ identity, wallet, followed, userPosts, feedPosts, tokens,
         <button onClick={onBack} className="btn-ghost px-3 py-1.5 text-[12px] font-semibold">← back to feed</button>
 
         <div className="card p-5 pop-in">
-          <div className="flex flex-wrap items-center gap-4">
+          <div className="flex flex-wrap items-start gap-4">
             <Avatar wallet={wallet} avatar={avatar} size={72} className="ring-2 ring-[#0052ff]/40" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 {handle && <span className="font-display text-xl font-black text-white">@{handle}</span>}
                 <CopyAddr addr={wallet} short={8} className="text-[12px] font-medium text-[#b3bdd4]" />
               </div>
-              <div className="mt-1 text-[12px] text-[#b3bdd4]">
-                {myPosts.length} post{myPosts.length === 1 ? '' : 's'} · {theirTrades.length} trade{theirTrades.length === 1 ? '' : 's'} in this hour
+              {acc?.bio && !editingBio && (
+                <p className="mt-2 text-[13px] text-white/80 leading-relaxed whitespace-pre-wrap">{acc.bio}</p>
+              )}
+              {own && editingBio && (
+                <textarea
+                  value={bioInput}
+                  onChange={(e) => setBioInput(e.target.value.slice(0, 160))}
+                  placeholder="Tell the degens who you are…"
+                  className="mt-2 w-full rounded-lg border border-[#1f2740] bg-[#050a1e]/60 px-3 py-2 text-[13px] text-white placeholder-[#3a4a75] outline-none focus:border-[#0052ff] resize-none"
+                  rows={3}
+                />
+              )}
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-4 text-[12px] text-[#b3bdd4]">
+                  <span className="font-bold text-white">{acc?.followers || 0}</span> followers
+                  <span className="font-bold text-white">{acc?.following || 0}</span> following
+                </div>
+                {own && !editingBio && (
+                  <button onClick={() => setEditingBio(true)} className="btn-ghost px-3 py-1.5 text-[11px] font-semibold">edit bio</button>
+                )}
+                {own && editingBio && (
+                  <div className="flex gap-2">
+                    <button onClick={saveBio} className="btn-gem px-3 py-1.5 text-[11px] font-bold">save</button>
+                    <button onClick={() => { setEditingBio(false); setBioInput(acc?.bio || '') }} className="btn-ghost px-3 py-1.5 text-[11px] font-semibold">cancel</button>
+                  </div>
+                )}
+                {!own && (
+                  <button
+                    onClick={onFollow}
+                    className={`px-5 py-2 text-[13px] font-bold transition-all shimmer-btn ${followed ? 'btn-ghost' : 'btn-gem'}`}
+                  >
+                    {followed ? 'Following ✓' : 'Follow'}
+                  </button>
+                )}
               </div>
             </div>
-            {!own && (
-              <button
-                onClick={onFollow}
-                className={`px-5 py-2 text-[13px] font-bold transition-all shimmer-btn ${followed ? 'btn-ghost' : 'btn-gem'}`}
-              >
-                {followed ? 'Following ✓' : 'Follow'}
-              </button>
-            )}
           </div>
         </div>
 
-        <div>
-          <h2 className="mb-2 px-1 font-display text-lg font-black text-white">Posts</h2>
-          {myPosts.length === 0 ? (
-            <div className="card p-6 text-center text-[12px] text-[#3a4a75]">No posts yet — wallet silence.</div>
-          ) : (
-            <div className="space-y-3">
-              {myPosts.map((p, i) => <UserPostCard key={p.id} post={p} onLike={onLike} onOpen={onOpen} delay={i * 30} tokens={tokens} />)}
-            </div>
-          )}
+        <div className="border-b border-[#1f2740] flex gap-1 px-1">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`rounded-full px-3 py-1.5 text-[11px] font-bold transition-all whitespace-nowrap ${tab === t.key ? 'bg-[#0052ff]/20 text-[#0052ff]' : 'text-[#b3bdd4] hover:text-white hover:bg-[#0d142b]/40'}`}
+            >
+              {t.label} <span className="opacity-60">{t.count}</span>
+            </button>
+          ))}
         </div>
 
-        <div>
-          <h2 className="mb-2 px-1 font-display text-lg font-black text-white">Trades</h2>
-          {theirTrades.length === 0 ? (
+        <div className="space-y-3">
+          {tab === 'posts' && myRegularPosts.length === 0 && (
+            <div className="card p-6 text-center text-[12px] text-[#3a4a75]">No posts yet — wallet silence.</div>
+          )}
+          {tab === 'posts' && myRegularPosts.map((p, i) => <UserPostCard key={p.id} post={p} onLike={onLike} onOpen={onOpen} delay={i * 30} tokens={tokens} />)}
+          {tab === 'shots' && myShots.length === 0 && (
+            <div className="card p-6 text-center text-[12px] text-[#3a4a75]">No shots called yet.</div>
+          )}
+          {tab === 'shots' && myShots.map((p, i) => <UserPostCard key={p.id} post={p} onLike={onLike} onOpen={onOpen} delay={i * 30} tokens={tokens} />)}
+          {tab === 'trades' && theirTrades.length === 0 && (
             <div className="card p-6 text-center text-[12px] text-[#3a4a75]">No BaseStonk trades in this hour.</div>
-          ) : (
-            <div className="space-y-3">
-              {theirTrades.slice(0, 20).map((p, i) => <TradeCard key={p.id} post={p} onOpen={onOpen} delay={i * 30} />)}
-            </div>
+          )}
+          {tab === 'trades' && theirTrades.slice(0, 30).map((p, i) => <TradeCard key={p.id} post={p} onOpen={onOpen} delay={i * 30} />)}
+          {tab === 'followers' && (
+            <div className="card p-6 text-center text-[12px] text-[#3a4a75]">Followers list coming soon.</div>
+          )}
+          {tab === 'following' && (
+            <div className="card p-6 text-center text-[12px] text-[#3a4a75]">Following list coming soon.</div>
           )}
         </div>
       </section>
@@ -1279,9 +1399,9 @@ export default function App() {
           {NAV.map((item) => (
             <button
               key={item.key} onClick={() => setView(item.key)}
-              className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[10px] font-bold transition-all ${view === item.key ? 'bg-[#0052ff]/20 text-[#0052ff]' : 'text-[#b3bdd4] hover:bg-[#0d142b]/40 hover:text-white'}`}
+              className={`flex flex-1 flex-col items-center gap-0.5 rounded-full px-1 py-2 text-[10px] font-bold transition-all ${view === item.key ? 'bg-[#0052ff]/20 text-[#0052ff]' : 'text-[#b3bdd4] hover:bg-[#0d142b]/40 hover:text-white'}`}
             >
-              <span className={`text-[17px] leading-none ${view === item.key ? 'drop-shadow-[0_0_8px_rgba(0,82,255,0.8)]' : 'grayscale-[35%]'}`}>{item.icon}</span>
+              <span className={`leading-none ${view === item.key ? 'drop-shadow-[0_0_6px_rgba(0,82,255,0.7)]' : 'opacity-70'}`}><TabGlyph k={item.key} /></span>
               {item.label}
             </button>
           ))}
@@ -1332,13 +1452,13 @@ export default function App() {
                     <button
                       key={m}
                       onClick={() => setFeedMode(m)}
-                      className={`rounded-full px-3.5 py-1.5 text-[12px] font-bold transition-all ${feedMode === m ? 'bg-white text-[#09090b]' : 'text-[#b3bdd4] hover:text-white'}`}
+                      className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-[12px] font-bold transition-all ${feedMode === m ? 'bg-white text-[#09090b]' : 'text-[#b3bdd4] hover:text-white'}`}
                     >
                       {m === 'general' ? 'General' : `Following · ${following.size}`}
                     </button>
                   ))}
                 </div>
-                <span className="text-[11px] text-[#3a4a75]">follow wallets to build your own feed</span>
+                <span className="hidden text-[11px] text-[#3a4a75] sm:block">follow wallets to build your own feed</span>
               </div>
 
               <div className="mt-4 space-y-4">
