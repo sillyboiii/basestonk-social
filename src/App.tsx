@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   fetchTokens, fetchFeed, fetchLeaderboard, fetchPosts, createPost, likePost,
-  fetchAccount, saveAccount,
+  fetchAccount, saveAccount, fetchPositions,
   fmtUsd, fmtNum,
 } from './lib/api'
-import type { Token, FeedItem, LeaderRow, UserPost } from './lib/api'
+import type { Token, FeedItem, LeaderRow, UserPost, Position } from './lib/api'
 import { derivePosts, avatarGradient, initials, relativeTime, shortAddr } from './lib/social'
 import type { Post } from './lib/social'
 
@@ -32,7 +32,21 @@ function useIdentity() {
   })[0]
 }
 
+function isImgAvatar(a?: string | null): boolean {
+  return !!a && (a.startsWith('data:image') || a.startsWith('http'))
+}
+
 function Avatar({ wallet, avatar, size = 40, className = '' }: { wallet: string; avatar?: string | null; size?: number; className?: string }) {
+  if (isImgAvatar(avatar)) {
+    return (
+      <div
+        className={`grid shrink-0 place-items-center overflow-hidden rounded-full ${className}`}
+        style={{ width: size, height: size, background: avatarGradient(wallet) }}
+      >
+        <img src={avatar!} alt="" className="h-full w-full rounded-full object-cover" />
+      </div>
+    )
+  }
   return (
     <div
       className={`grid shrink-0 place-items-center rounded-full text-white ${className}`}
@@ -152,18 +166,19 @@ function caretCoords(textarea: HTMLTextAreaElement): { x: number; y: number } {
 // Find the active "$tick" being typed right before the caret.
 function probeTicker(body: string, caret: number): { start: number; query: string } | null {
   const before = body.slice(0, caret)
-  const m = before.match(/(^|\s)\$([a-zA-Z0-9]+)$/)
+  const m = before.match(/(^|\s)\$([a-zA-Z0-9]*)$/)
   if (!m) return null
   return { start: caret - m[2].length - 1, query: m[2] }
 }
 
 // ─── Composer: actually post, with inline $ ticker autocomplete ────────────
 
-function Composer({ identity, tokens, onPosted }: { identity: string; tokens: Token[]; onPosted: () => void }) {
+function Composer({ identity, allStonks, tokens, onPosted }: { identity: string; allStonks: Token[]; tokens: Token[]; onPosted: () => void }) {
   const [body, setBody] = useState('')
   const [tag, setTag] = useState<Token | null>(null)
   const [caret, setCaret] = useState(0)
   const [tickPos, setTickPos] = useState<{ x: number; y: number } | null>(null)
+  const [picked, setPicked] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showProfile, setShowProfile] = useState(false)
@@ -172,14 +187,29 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
   const [savingProfile, setSavingProfile] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const escRef = useRef(false)
 
   const ticker = useMemo(() => probeTicker(body, caret), [body, caret])
   const matches = useMemo(() => {
-    if (!ticker || !ticker.query) return []
+    if (!ticker) return []
     const q = ticker.query.toLowerCase()
-    return tokens.filter((t) => t.symbol.toLowerCase().startsWith(q) || t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q)).slice(0, 6)
-  }, [ticker, tokens])
-  const showTick = !!ticker && ticker.query.length >= 1 && matches.length > 0
+    const pool = allStonks.length ? allStonks : tokens
+    const list = q
+      ? pool.filter((t) => t.symbol.toLowerCase().startsWith(q) || t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q))
+      : pool
+    const out = list.slice(0, 6)
+    if (picked !== null && body === picked) return []
+    return out
+  }, [ticker, allStonks, tokens, picked, body])
+  const showTick = !!ticker && tickPos !== null && matches.length > 0
+
+  function refreshCaret() {
+    const r = taRef.current
+    if (!r) return
+    setCaret(r.selectionStart ?? r.value.length)
+    setTickPos(caretCoords(r))
+  }
 
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -196,11 +226,13 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
     const next = body.slice(0, ticker.start) + `$${t.symbol}` + body.slice(caret)
     const nextCaret = ticker.start + t.symbol.length + 1
     setBody(next)
+    setPicked(next)
     setTag(t)
     setTickPos(null)
     requestAnimationFrame(() => {
       taRef.current!.focus()
       taRef.current!.setSelectionRange(nextCaret, nextCaret)
+      setCaret(nextCaret)
     })
   }
 
@@ -214,6 +246,7 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
       setBody('')
       setTag(null)
       setTickPos(null)
+      setPicked(null)
       onPosted()
     } catch (e: any) {
       setError(e.message || 'Post failed')
@@ -238,6 +271,35 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
     }
   }
 
+  function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f || !/^image\//.test(f.type)) return
+    const url = URL.createObjectURL(f)
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const s = 96
+        const c = document.createElement('canvas')
+        c.width = s
+        c.height = s
+        const ctx = c.getContext('2d')
+        if (!ctx) return
+        ctx.fillStyle = '#050a1e'
+        ctx.fillRect(0, 0, s, s)
+        const r = Math.min(img.width / s, img.height / s)
+        const sw = img.width / r
+        const sh = img.height / r
+        ctx.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, 0, 0, s, s)
+        setAvatar(c.toDataURL('image/jpeg', 0.82))
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    }
+    img.onerror = () => URL.revokeObjectURL(url)
+    img.src = url
+  }
+
   return (
     <div className="card p-4 pop-in">
       <div className="flex items-start gap-3">
@@ -255,7 +317,16 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
                 placeholder="degensapiens"
                 className="mt-1.5 w-full rounded-lg border border-[#1f2740] bg-[#050a1e]/60 px-3 py-1.5 text-[13px] text-white placeholder-[#3a4a75] outline-none focus:border-[#0052ff]"
               />
-              <div className="mt-2.5 text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Avatar</div>
+              <div className="mt-2.5 flex items-end justify-between gap-3 text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Avatar<span className="text-[#3a4a75]">96px · auto-cropped</span></div>
+              <div className="mt-1.5 flex items-center gap-3">
+                <Avatar wallet={identity} avatar={avatar} size={52} className="ring-2 ring-[#0052ff]/40" />
+                <div className="flex flex-col gap-1.5">
+                  <button onClick={() => fileRef.current?.click()} className="btn-ghost px-3 py-1.5 text-[12px] font-semibold">📷 Upload photo</button>
+                  <button onClick={() => { setAvatar(''); setHandle(''); saveProfile() }} className="px-3 py-1 text-[11px] text-[#3a4a75] transition-colors hover:text-[#ea6055]">remove photo</button>
+                </div>
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickFile} />
+              <div className="mt-3 text-[10px] font-bold uppercase tracking-wider text-[#3a4a75]">or pick an emoji</div>
               <div className="mt-1.5 flex flex-wrap gap-1.5">
                 {AVATARS.map((a) => (
                   <button
@@ -271,7 +342,6 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
                 <button onClick={saveProfile} disabled={savingProfile} className="btn-gem px-4 py-1.5 text-[12px] font-bold disabled:opacity-50">
                   {savingProfile ? 'Saving…' : 'Save profile'}
                 </button>
-                <button onClick={() => { setAvatar(''); setHandle(''); handle.trim() && saveProfile() }} className="btn-ghost px-3 py-1.5 text-[12px]">Clear</button>
               </div>
             </div>
           )}
@@ -285,13 +355,24 @@ function Composer({ identity, tokens, onPosted }: { identity: string; tokens: To
             <textarea
               ref={taRef}
               value={body}
-              onChange={(e) => { setBody(e.target.value.slice(0, 280)); setCaret(e.target.selectionStart ?? 0) }}
-              onSelect={() => setCaret(taRef.current!.selectionStart ?? 0)}
-              onKeyUp={() => setCaret(taRef.current!.selectionStart ?? 0)}
-              onClick={() => setTickPos(taRef.current ? caretCoords(taRef.current) : null)}
-              onFocus={() => setTickPos(taRef.current ? caretCoords(taRef.current) : null)}
+              onChange={(e) => {
+                setBody(e.target.value.slice(0, 280))
+                setCaret((sel) => (e.target.selectionStart ?? sel))
+                setTickPos(caretCoords(taRef.current!))
+              }}
+              onSelect={refreshCaret}
+              onKeyUp={() => { if (escRef.current) { escRef.current = false; return } refreshCaret() }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') { escRef.current = true; setTickPos(null); return }
+                if (e.key === 'Enter' && showTick && matches.length > 0) {
+                  e.preventDefault()
+                  pickToken(matches[0])
+                }
+              }}
+              onClick={refreshCaret}
+              onFocus={refreshCaret}
               rows={3}
-              placeholder={'Type your call… try $ instead of a symbol to tag a token'}
+              placeholder={'Type your call… just type $ then the ticker to tag it'}
               className="w-full resize-none rounded-xl border border-[#1f2740] bg-[#050a1e]/60 p-3 text-[14px] text-white placeholder-[#3a4a75] outline-none transition-colors focus:border-[#0052ff]"
             />
             {showTick && tickPos && (
@@ -417,134 +498,160 @@ function TradeCard({ post, delay = 0 }: { post: Post; delay?: number }) {
   )
 }
 
-// ─── P&L card builder ──────────────────────────────────────────────────────
+// ─── Portfolio view: your bag → P&L cards (zero fill-typing) ───────────────
 
-function PnlBuilder({ identity, tokens, onPosted }: { identity: string; tokens: Token[]; onPosted: () => void }) {
-  const [tag, setTag] = useState<Token | null>(null)
-  const [entry, setEntry] = useState('')
-  const [exit, setExit] = useState('')
-  const [size, setSize] = useState('')
-  const [posting, setPosting] = useState(false)
+function PortfolioView({ identity, tokens, leader, posts, onPosted }: { identity: string; tokens: Token[]; leader: LeaderRow[]; posts: Post[]; onPosted: () => void }) {
+  const [wallet, setWallet] = useState(identity)
+  const [bag, setBag] = useState<{ positions: Position[]; trades: FeedItem[] } | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [sel, setSel] = useState<Position | null>(null)
+  const [posted, setPosted] = useState<string | null>(null)
 
-  const entryN = parseFloat(entry)
-  const exitN = parseFloat(exit)
-  const sizeN = parseFloat(size)
-  const valid = !!tag && entryN > 0 && exitN > 0 && sizeN > 0
-  const pnlPct = valid ? ((exitN - entryN) / entryN) * 100 : 0
-  const pnlUsd = valid ? (exitN - entryN) * (sizeN / entryN) : 0
-  const up = pnlPct >= 0
+  const load = useCallback(async (w: string) => {
+    const clean = String(w || '').trim()
+    if (!/^0x[0-9a-fA-F]{40}$/.test(clean)) return
+    setLoading(true)
+    const r = await fetchPositions(clean).catch(() => ({ positions: [], trades: [] }))
+    setBag(r)
+    setSel((cur) => (r.positions.length ? r.positions.find((p) => cur?.symbol === p.symbol) || r.positions[0] : null))
+    setLoading(false)
+  }, [])
 
-  async function postCard() {
-    if (!valid || posting) return
-    setPosting(true)
-    try {
-      const dir = up ? 'flipped' : 'got rekt on'
-      const line = `I ${dir} $${tag!.symbol} ${up ? '+' : ''}${pnlPct.toFixed(1)}% ${up ? '📈' : '📉'} on Base`
-      await createPost({ author: identity, body: line, tokenSymbol: tag!.symbol, tokenImage: tag!.imageUrl })
-      setEntry(''); setExit(''); setSize(''); setTag(null)
-      onPosted()
-    } catch (e: any) {
-      console.error(e)
-    } finally {
-      setPosting(false)
-    }
+  useEffect(() => { load(identity) }, [identity, load])
+
+  async function postCard(p: Position) {
+    const up = p.pnlPct >= 0
+    const closed = p.open ? '' : ' · bag closed'
+    const line = `I ${up ? 'flipped' : 'got rekt on'} $${p.symbol} ${up ? '+' : ''}${Math.abs(p.pnlPct).toFixed(1)}%${closed} ${up ? '📈' : '📉'} on Base`
+    await createPost({ author: identity, body: line, tokenSymbol: p.symbol, tokenImage: p.imageUrl || undefined }).catch(() => null)
+    setPosted(p.symbol)
+    setTimeout(() => setPosted((v) => (v === p.symbol ? null : v)), 2500)
+    onPosted()
   }
 
-  return (
-    <div className="card overflow-hidden">
-      <div className="border-b border-[#1f2740] px-5 py-4">
-        <h2 className="font-display text-lg font-black text-white">Build your P&L card</h2>
-        <p className="mt-0.5 text-[12px] text-[#b3bdd4]">Pick a token, plug in your fills, and flex or cope. Post it to the wall.</p>
-      </div>
+  const stream: (Post | FeedItem)[] = bag && bag.trades.length ? bag.trades : posts.slice(0, 30)
+  const displayWallet = wallet || identity
 
-      <div className="grid gap-4 p-5 md:grid-cols-2">
-        {/* inputs */}
-        <div className="space-y-3">
-          {!tag && (
-            <select
-              value=""
-              onChange={(e) => setTag(tokens.find((t) => t.address === e.target.value) || null)}
-              className="w-full appearance-none rounded-xl border border-[#1f2740] bg-[#0d142b] px-3 py-2.5 text-[13px] font-semibold text-white outline-none focus:border-[#0052ff]"
-            >
-              <option value="">Select token…</option>
-              {tokens.map((t) => (
-                <option key={t.address} value={t.address}>${t.symbol} · {t.name}</option>
-              ))}
-            </select>
-          )}
-          {tag && (
-            <div className="flex items-center justify-between rounded-xl border border-[#0052ff]/40 bg-[#0d142b] px-3 py-2.5">
-              <span className="flex items-center gap-2">
-                <CoinGlyph src={tag.imageUrl || tag.logoUrl} symbol={tag.symbol} size={24} ring={false} />
-                <span className="font-bold text-[#0052ff]">${tag.symbol}</span>
-              </span>
-              <button onClick={() => setTag(null)} className="text-[12px] text-[#b3bdd4] hover:text-white">✕ change</button>
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Entry</span>
-              <input value={entry} onChange={(e) => setEntry(e.target.value)} placeholder="0.000023" inputMode="decimal" className="mt-1 w-full rounded-xl border border-[#1f2740] bg-[#050a1e]/60 px-3 py-2.5 text-[13px] text-white placeholder-[#3a4a75] outline-none focus:border-[#0052ff]" />
-            </label>
-            <label className="block">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Exit</span>
-              <input value={exit} onChange={(e) => setExit(e.target.value)} placeholder="0.000034" inputMode="decimal" className="mt-1 w-full rounded-xl border border-[#1f2740] bg-[#050a1e]/60 px-3 py-2.5 text-[13px] text-white placeholder-[#3a4a75] outline-none focus:border-[#0052ff]" />
-            </label>
-          </div>
-          <label className="block">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Position size (USDC)</span>
-            <input value={size} onChange={(e) => setSize(e.target.value)} placeholder="500" inputMode="decimal" className="mt-1 w-full rounded-xl border border-[#1f2740] bg-[#050a1e]/60 px-3 py-2.5 text-[13px] text-white placeholder-[#3a4a75] outline-none focus:border-[#0052ff]" />
-          </label>
-          <button onClick={postCard} disabled={!valid || posting} className="btn-gem shimmer-btn w-full px-4 py-2.5 text-[13px] font-bold disabled:opacity-40">
-            {posting ? 'Posting…' : 'Post P&L card 🚀'}
-          </button>
-        </div>
-
-        {/* live preview */}
-        <div>
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Preview</div>
-          <div className={`mt-1.5 relative overflow-hidden rounded-2xl border p-5 ${up ? 'border-[#45d68f]/50' : 'border-[#ea6055]/50'} ${up ? 'bg-gradient-to-br from-[#0c2a1f] to-[#0c1531]' : 'bg-gradient-to-br from-[#2a1010] to-[#0c1531]'}`}>
-            <div className="absolute right-3 top-3"><img src="/bstonk.webp" alt="" className="h-7 w-7 opacity-70" /></div>
-            {tag ? (
-              <CoinGlyph src={tag.imageUrl || tag.logoUrl} symbol={tag.symbol} size={48} />
-            ) : (
-              <div className="grid h-12 w-12 place-items-center rounded-full bg-[#0d142b] text-[10px] text-[#3a4a75]">?</div>
-            )}
-            <div className="mt-3 text-[12px] text-[#b3bdd4]">{tag ? tag.name : 'token'}</div>
-            <div className={`font-display text-4xl font-black ${up ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{up ? '▲' : '▼'} {valid ? Math.abs(pnlPct).toFixed(1) : '0.0'}%</div>
-            <div className={`mt-1 font-display text-xl font-bold ${up ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{up ? '+' : ''}{valid ? pnlUsd.toFixed(2) : '0.00'} USDC</div>
-            <div className="mt-4 flex items-center justify-between text-[10px] text-[#b3bdd4]">
-              <span className="font-mono">{shortAddr(identity)}</span>
-              <span>BASESTONK · DEGEN TERMINAL</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Portfolio view: your trades + P&L cards ───────────────────────────────
-
-function PortfolioView({ identity, tokens, posts, onPosted }: { identity: string; tokens: Token[]; posts: Post[]; onPosted: () => void }) {
-  const stream = useMemo(() => {
-    const mine = posts.filter((p) => p.trader === identity)
-    return (mine.length ? mine : posts).slice(0, 30)
-  }, [posts, identity])
   return (
     <div className="fade-in flex gap-6">
       <section className="min-w-0 flex-1 space-y-6">
-        <PnlBuilder identity={identity} tokens={tokens} onPosted={onPosted} />
+        <div className="flex flex-wrap items-end justify-between gap-3 px-1">
+          <div>
+            <h1 className="font-display text-3xl font-black tracking-tight text-white">Your <span className="text-[#0052ff]">bag</span></h1>
+            <p className="mt-1 text-[13px] font-medium text-[#b3bdd4]">Trades pulled straight from the wallet — no typing fills. Pick a position, get the card.</p>
+          </div>
+        </div>
+
+        <div className="card p-4">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Wallet address</label>
+          <div className="mt-1.5 flex gap-2">
+            <input
+              value={wallet}
+              onChange={(e) => setWallet(e.target.value.trim())}
+              onKeyDown={(e) => { if (e.key === 'Enter') load(wallet) }}
+              placeholder="0x…"
+              spellCheck={false}
+              className="min-w-0 flex-1 rounded-xl border border-[#1f2740] bg-[#050a1e]/60 px-3 py-2.5 font-mono text-[12px] text-white placeholder-[#3a4a75] outline-none focus:border-[#0052ff]"
+            />
+            <button onClick={() => load(wallet)} disabled={loading} className="btn-gem shimmer-btn shrink-0 px-5 py-2 text-[12px] font-bold disabled:opacity-50">
+              {loading ? 'Pulling…' : 'Pull positions'}
+            </button>
+          </div>
+        </div>
+
+        {bag && bag.positions.length === 0 && (
+          <div className="card p-8 text-center pop-in">
+            <div className="text-2xl">🪝</div>
+            <div className="mt-2 text-[14px] font-semibold text-white">No BaseStonk fills on this wallet.</div>
+            <div className="mx-auto mt-1 max-w-sm text-[12px] text-[#b3bdd4]">Paste any wallet that trades the launchpad above — entry, size and exit all come from the chain, and the cards build themselves.</div>
+          </div>
+        )}
+
+        {bag && bag.positions.length > 0 && (
+          <div className="card overflow-hidden">
+            <div className="border-b border-[#1f2740] px-5 py-4">
+              <h2 className="font-display text-lg font-black text-white">Your positions</h2>
+              <p className="mt-0.5 text-[12px] text-[#b3bdd4]">Pick one to build its P&L card →</p>
+            </div>
+            <div className="grid gap-1 p-3 sm:grid-cols-2 xl:grid-cols-1">
+              {bag.positions.map((p, i) => {
+                const up = p.pnlPct >= 0
+                const active = sel?.symbol === p.symbol
+                return (
+                  <button
+                    key={p.symbol}
+                    onClick={() => setSel(p)}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors fade-up ${active ? 'bg-[#0052ff]/15 ring-1 ring-[#0052ff]/40' : 'hover:bg-[#0d142b]/70'}`}
+                    style={{ animationDelay: `${i * 30}ms` }}
+                  >
+                    <CoinGlyph src={p.imageUrl} symbol={p.symbol} size={36} ring={false} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-extrabold text-[#0052ff]">${p.symbol}</span>
+                        <span className="text-[10px] text-[#3a4a75]">{p.buys}b · {p.sells}s</span>
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-[#b3bdd4]">entry {fmtUsd(p.entry, 6)} → {fmtUsd(p.current, 6)}</div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className={`font-mono text-[13px] font-extrabold ${up ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{up ? '▲' : '▼'} {Math.abs(p.pnlPct).toFixed(1)}%</div>
+                      <div className={`text-[11px] font-bold ${up ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{up ? '+' : '−'}{fmtUsd(Math.abs(p.pnlUsd))}{p.open ? '' : ' · closed'}</div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {sel && (
+          <div className="card overflow-hidden pop-in">
+            <div className="border-b border-[#1f2740] px-5 py-4">
+              <h2 className="font-display text-lg font-black text-white"><span className="text-[#0052ff]">${sel.symbol}</span> P&L card</h2>
+              <p className="mt-0.5 text-[12px] text-[#b3bdd4]">Auto-built from the wallet. The barrier to flexing is now zero.</p>
+            </div>
+            <div className="grid items-center gap-5 p-5 lg:grid-cols-[1fr_auto]">
+              <div className={`relative overflow-hidden rounded-2xl border p-6 ${sel.pnlPct >= 0 ? 'border-[#45d68f]/50 bg-gradient-to-br from-[#0c2a1f] to-[#0c1531]' : 'border-[#ea6055]/50 bg-gradient-to-br from-[#2a1010] to-[#0c1531]'}`}>
+                <div className="absolute right-3 top-3"><img src="/bstonk.webp" alt="" className="h-7 w-7 opacity-70" /></div>
+                <div className="flex items-center gap-3">
+                  <CoinGlyph src={sel.imageUrl} symbol={sel.symbol} size={48} />
+                  <div>
+                    <div className="text-[12px] text-[#b3bdd4]">{sel.name}</div>
+                    <div className="font-display text-3xl font-black text-white">${sel.symbol}</div>
+                  </div>
+                </div>
+                <div className={`mt-4 font-display text-5xl font-black ${sel.pnlPct >= 0 ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{sel.pnlPct >= 0 ? '▲' : '▼'} {Math.abs(sel.pnlPct).toFixed(1)}%</div>
+                <div className={`mt-1 font-display text-xl font-bold ${sel.pnlPct >= 0 ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{sel.pnlPct >= 0 ? '+' : ''}{fmtUsd(Math.abs(sel.pnlUsd))} {sel.open ? 'USDC' : 'realized'}</div>
+                <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+                  <div className="rounded-lg bg-black/20 px-2 py-2"><div className="text-[9px] uppercase tracking-wider text-[#b3bdd4]">Entry</div><div className="font-mono text-[13px] font-bold text-white">{fmtUsd(sel.entry, 6)}</div></div>
+                  <div className="rounded-lg bg-black/20 px-2 py-2"><div className="text-[9px] uppercase tracking-wider text-[#b3bdd4]">Now</div><div className="font-mono text-[13px] font-bold text-white">{fmtUsd(sel.current, 6)}</div></div>
+                  <div className="rounded-lg bg-black/20 px-2 py-2"><div className="text-[9px] uppercase tracking-wider text-[#b3bdd4]">{sel.open ? 'Exposure' : 'Volume'}</div><div className="font-mono text-[13px] font-bold text-white">{fmtUsd(sel.open ? sel.exposureUsd : sel.buyVolUsd)}</div></div>
+                </div>
+                <div className="mt-4 flex items-center justify-between text-[10px] text-[#b3bdd4]">
+                  <span className="font-mono">{shortAddr(displayWallet)}</span>
+                  <span>BASESTONK · DEGEN TERMINAL</span>
+                </div>
+              </div>
+              <div className="flex flex-col items-start justify-end gap-2 lg:items-stretch">
+                <button onClick={() => postCard(sel)} className="btn-gem shimmer-btn px-8 py-3 text-[13px] font-bold">
+                  {posted === sel.symbol ? 'Posted ✓' : 'Get my card 🚀'}
+                </button>
+                <span className="max-w-[190px] text-[10px] leading-snug text-[#3a4a75]">Posts the P&L card straight to the wall as your wallet.</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div>
-          <h2 className="mb-2 px-1 font-display text-lg font-black text-white">Recent trades</h2>
+          <h2 className="mb-2 px-1 font-display text-lg font-black text-white">{bag && bag.trades.length ? 'Your recent trades' : 'Recent trades'}</h2>
           <div className="space-y-3">
-            {stream.map((p, i) => <TradeCard key={p.id} post={p} delay={i * 30} />)}
+            {stream.map((p, i) => <TradeCard key={p.id} post={p as Post} delay={i * 30} />)}
           </div>
         </div>
       </section>
+
       <aside className="hidden w-72 shrink-0 flex-col gap-6 self-start xl:flex">
         <TrendingStonks tokens={tokens} />
-        <TopDegens rows={[]} />
+        <TopDegens rows={leader} />
       </aside>
     </div>
   )
@@ -710,11 +817,11 @@ function DegensView({ rows }: { rows: LeaderRow[] }) {
 export default function App() {
   const [view, setView] = useState<View>('home')
   const [tokens, setTokens] = useState<Token[]>([])
+  const [allStonks, setAllStonks] = useState<Token[]>([])
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [leader, setLeader] = useState<LeaderRow[]>([])
   const [userPosts, setUserPosts] = useState<UserPost[]>([])
   const [loading, setLoading] = useState(true)
-  const [err, setErr] = useState<string | null>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const identity = useIdentity()
 
@@ -733,26 +840,33 @@ export default function App() {
   }, [tokens, posts])
 
   const loadAll = useCallback(async () => {
-    const [tokRes, feedRes, leadRes, postsRes] = await Promise.all([
+    const [tokRes, volRes, feedRes, leadRes, postsRes] = await Promise.all([
       fetchTokens(60, 'trending').catch(() => null),
+      fetchTokens(100, 'volume').catch(() => null),
       fetchFeed(40).catch(() => null),
       fetchLeaderboard(20).catch(() => null),
       fetchPosts(50).catch(() => null),
     ])
-    if (tokRes) setTokens(tokRes.tokens)
-    if (feedRes) setFeed(feedRes)
-    if (leadRes) setLeader(leadRes.rows)
+    const arr = (r: { tokens?: Token[] } | null) => (Array.isArray(r?.tokens) ? r!.tokens : [])
+    const trend = arr(tokRes)
+    if (trend.length) setTokens(trend)
+    if (arr(volRes).length || trend.length) {
+      const seen = new Set<string>()
+      setAllStonks([...arr(volRes), ...trend].filter((t) => t.symbol && !seen.has(t.symbol) && !!seen.add(t.symbol)))
+    }
+    if (Array.isArray(feedRes)) setFeed(feedRes)
+    if (Array.isArray(leadRes?.rows)) setLeader(leadRes!.rows)
     if (Array.isArray(postsRes)) setUserPosts(postsRes)
-    setErr(null)
     setLoading(false)
   }, [])
 
   useEffect(() => { loadAll() }, [loadAll])
   useEffect(() => {
     const t = setInterval(async () => {
-      const p = await Promise.all([fetchFeed(40).catch(() => null), fetchPosts(50).catch(() => null)])
-      if (p[0]) setFeed(p[0])
-      if (Array.isArray(p[1])) setUserPosts(p[1])
+      const [feedRes, postsRes] = await Promise.all([fetchFeed(40).catch(() => null), fetchPosts(50).catch(() => null)])
+      if (Array.isArray(feedRes)) setFeed(feedRes)
+      if (Array.isArray(postsRes)) setUserPosts(postsRes)
+      fetchTokens(60, 'trending').then((r) => setTokens(r.tokens)).catch(() => null)
     }, 15000)
     return () => clearInterval(t)
   }, [])
@@ -789,7 +903,9 @@ export default function App() {
       <header className="sticky top-0 z-40 bg-[#050a1e]/80 backdrop-blur-md">
         <div className="mx-auto flex h-[70px] max-w-7xl items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-2.5">
-            <img src="/bstonk.webp" alt="" className="h-9 w-9 gem-glow hover:rotate-12" style={{ transition: 'transform .3s ease' }} />
+            <div className="logo-gem">
+              <img src="/bstonk.webp" alt="" className="h-9 w-9 rounded-full gem-glow" />
+            </div>
             <span className="font-display text-[17px] font-black tracking-tight text-white">BASE<span className="text-[#0052ff]">STONK</span></span>
           </div>
 
@@ -824,7 +940,7 @@ export default function App() {
       <main className="relative z-10 mx-auto max-w-7xl gap-6 px-4 py-6">
         {view === 'trending' && <TrendingView tokens={tokens} />}
         {view === 'degens' && <DegensView rows={leader} />}
-        {view === 'portfolio' && <PortfolioView identity={identity} tokens={tokens} posts={posts} onPosted={loadAll} />}
+        {view === 'portfolio' && <PortfolioView identity={identity} tokens={tokens} leader={leader} posts={posts} onPosted={loadAll} />}
 
         {view === 'home' && (
           <div className="flex gap-6">
@@ -841,15 +957,10 @@ export default function App() {
               </div>
 
               <div ref={composerRef} className="space-y-3">
-                <Composer identity={identity} tokens={tokens} onPosted={loadAll} />
+                <Composer identity={identity} allStonks={allStonks} tokens={tokens} onPosted={loadAll} />
               </div>
 
               <div className="mt-4 space-y-4">
-                {err && (
-                  <div className="rounded-xl border border-[#ea6055]/40 bg-[#ea6055]/10 p-3 text-sm text-[#ea6055]">
-                    Some data is temporarily unavailable ({err}). Retrying automatically…
-                  </div>
-                )}
                 {userPosts.length === 0 && (
                   <div className="card p-8 text-center pop-in">
                     <div className="text-2xl">🗣️</div>

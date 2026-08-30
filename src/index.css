@@ -154,6 +154,24 @@ body {
 .drop-panel { animation: dropPanel 0.18s ease-out both; transform-origin: top left; }
 @keyframes dropPanel { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
+/* brand gem in the header — spinning conic ring + breathing glow */
+.logo-gem { position: relative; display: grid; place-items: center; border-radius: 9999px; animation: gemBreathe 2.6s ease-in-out infinite; }
+.logo-gem::before {
+  content: '';
+  position: absolute; inset: -3px; border-radius: 9999px; z-index: 0;
+  background: conic-gradient(from 0deg, #0052ff, #2d7cff, #45d68f, #f5c847, #0052ff);
+  animation: gemSpin 3.2s linear infinite;
+  filter: blur(1px);
+}
+.logo-gem::after {
+  content: '';
+  position: absolute; inset: 0; border-radius: 9999px; z-index: 1;
+  box-shadow: 0 0 18px 2px rgba(0, 82, 255, 0.55), 0 0 34px 6px rgba(45, 124, 255, 0.25);
+}
+.logo-gem img { position: relative; z-index: 2; }
+@keyframes gemSpin { to { transform: rotate(360deg); } }
+@keyframes gemBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+
 /* shimmer across gem buttons */
 .shimmer-btn { position: relative; overflow: hidden; }
 .shimmer-btn::after {

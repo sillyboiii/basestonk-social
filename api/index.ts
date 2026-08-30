@@ -26,6 +26,34 @@ async function jfetch<T>(path: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
+// tiny per-instance cache + stale fallback: keeps upstream API from being hammered
+const upstreamCache = new Map<string, { at: number; data: unknown }>()
+async function jfetchCached<T>(path: string, ttl = 12000): Promise<T> {
+  const hit = upstreamCache.get(path)
+  if (hit && Date.now() - hit.at < ttl) return hit.data as T
+  try {
+    const data = await jfetch<T>(path)
+    upstreamCache.set(path, { at: Date.now(), data })
+    return data
+  } catch (e) {
+    if (hit) return hit.data as T
+    throw e
+  }
+}
+
+async function poolMap<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let i = 0
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const idx = i++
+      if (idx >= items.length) return
+      out[idx] = await fn(items[idx])
+    }
+  }))
+  return out
+}
+
 function sortTrades(a: { volumeUsd: number; buys: number; sells: number }, b: { volumeUsd: number; buys: number; sells: number }) {
   return b.volumeUsd - a.volumeUsd
 }
@@ -44,12 +72,68 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.json({ ok: true })
     }
 
+    // ─── /api/positions ──────────────────────────────────────
+    if (url.includes('/api/positions')) {
+      const u = new URL(url, 'http://x')
+      const wallet = (u.searchParams.get('wallet') || '').toLowerCase()
+      if (!/^0x[0-9a-f]{40}$/.test(wallet)) return res.json({ positions: [], trades: [] })
+      const data = await jfetchCached<any>(`/api/launchpad/tokens?chain=base&limit=80&sort=volume`, 30000).catch(() => null)
+      const top = (data?.tokens || []).slice(0, 80)
+      if (!top.length) return res.json({ positions: [], trades: [] })
+      const byTok = new Map<string, any>()
+      const raw: any[] = []
+      await poolMap(top, 6, async (t: any) => {
+        try {
+          const tr = await jfetchCached<any>(`/api/launchpad/tokens/${t.address}/trades?chain=base&limit=60&trader=${wallet}`, 15000).catch(() => null)
+          const mine = (tr?.trades || []).filter((x: any) => String(x?.trader || '').toLowerCase() === wallet)
+          if (!mine.length) return
+          const key = String(t.symbol || '').toUpperCase()
+          if (!key) return
+          const acc = byTok.get(key) || {
+            symbol: key, name: t.name || '', token: t.address, imageUrl: t.imageUrl || t.logoUrl,
+            currentPrice: t.priceUsd || 0, buys: [], sells: [],
+          }
+          mine.forEach((x: any) => {
+            if (x.side === 'buy') acc.buys.push(x)
+            else acc.sells.push(x)
+          })
+          byTok.set(key, acc)
+          mine.forEach((x: any) => raw.push({ trade: x, symbol: t.symbol, name: t.name, imageUrl: t.imageUrl || t.logoUrl }))
+        } catch { /* skip */ }
+      })
+      const positions = Array.from(byTok.values()).map((acc: any) => {
+        const buys = acc.buys, sells = acc.sells
+        const buyVol = buys.reduce((s: number, x: any) => s + (x.volumeUsd || 0), 0)
+        const sellVol = sells.reduce((s: number, x: any) => s + (x.volumeUsd || 0), 0)
+        const entry = buyVol > 0 ? buys.reduce((s: number, x: any) => s + (x.priceUsd || 0) * (x.volumeUsd || 0), 0) / buyVol : 0
+        const last = [...buys, ...sells].sort((a: any, b: any) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0]
+        const current = acc.currentPrice > 0 ? acc.currentPrice : (last?.priceUsd || entry)
+        const soldShare = buyVol > 0 ? Math.min(1, sellVol / buyVol) : 1
+        const exposureUsd = buyVol * (1 - soldShare)
+        const pnlPct = entry > 0 ? ((current - entry) / entry) * 100 : 0
+        const pnlUsd = exposureUsd * (pnlPct / 100)
+        return {
+          symbol: acc.symbol, name: acc.name, token: acc.token, imageUrl: acc.imageUrl,
+          buys: buys.length, sells: sells.length, buyVolUsd: buyVol, sellVolUsd: sellVol,
+          entry, current, exposureUsd, pnlUsd, pnlPct, open: exposureUsd > 0,
+        }
+      }).sort((a: any, b: any) => Math.abs(b.pnlUsd) - Math.abs(a.pnlUsd)).slice(0, 20)
+      const trades = raw.sort((a: any, b: any) => (b.trade.createdAt || '').localeCompare(a.trade.createdAt || '')).slice(0, 30).map(({ trade, symbol, name, imageUrl }) => ({
+        id: trade.id, token: trade.token, tokenSymbol: symbol, tokenName: name,
+        trader: trade.trader, traderShort: shortAddr(trade.trader),
+        side: trade.side, priceUsd: trade.priceUsd || 0, volumeUsd: trade.volumeUsd || 0,
+        amountToken: trade.amountToken, createdAt: trade.createdAt, txn: trade.txHash,
+        tokenImageUrl: imageUrl, change24hPct: 0, marketcapUsd: 0,
+      }))
+      return res.json({ positions, trades })
+    }
+
     // ─── /api/tokens ─────────────────────────────────────────
     if (url.includes('/api/tokens') && !url.match(/\/api\/tokens\/0x/)) {
       const u = new URL(url, 'http://x')
       const limit = u.searchParams.get('limit') || '50'
       const sort = u.searchParams.get('sort') || 'trending'
-      const data = await jfetch<any>(`/api/launchpad/tokens?chain=base&limit=${limit}&sort=${sort}`)
+      const data = await jfetchCached<any>(`/api/launchpad/tokens?chain=base&limit=${limit}&sort=${sort}`, 5000)
       const tokens = (data.tokens || []).map((t: any) => ({
         address: t.address, name: t.name, symbol: t.symbol,
         priceUsd: t.priceUsd || 0, change24hPct: t.change24hPct || 0,
@@ -72,14 +156,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // ─── /api/feed ───────────────────────────────────────────
     if (url.includes('/api/feed')) {
-      const data = await jfetch<any>(`/api/launchpad/tokens?chain=base&limit=30&sort=trending`)
+      const data = await jfetchCached<any>(`/api/launchpad/tokens?chain=base&limit=30&sort=trending`)
       const top = (data.tokens || []).slice(0, 12)
       const all: { trade: any; symbol: string; name: string; imageUrl?: string; change24hPct: number; marketcapUsd: number; spark: number[] }[] = []
-      await Promise.all(top.map(async (t: any) => {
+      await poolMap(top, 6, async (t: any) => {
         try {
           const [tr, cdl] = await Promise.all([
-            jfetch<any>(`/api/launchpad/tokens/${t.address}/trades?chain=base&limit=8`).catch(() => null),
-            jfetch<any>(`/api/launchpad/tokens/${t.address}/candles?chain=base&interval=5m&limit=24`).catch(() => null),
+            jfetchCached<any>(`/api/launchpad/tokens/${t.address}/trades?chain=base&limit=8`, 10000).catch(() => null),
+            jfetchCached<any>(`/api/launchpad/tokens/${t.address}/candles?chain=base&interval=5m&limit=24`, 10000).catch(() => null),
           ])
           const spark = Array.isArray(cdl?.candles) ? cdl.candles.map((c: any) => c.c) : []
           ;(tr?.trades || []).forEach((trade: any) => all.push({
@@ -87,7 +171,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             change24hPct: t.change24hPct || 0, marketcapUsd: t.marketcapUsd || 0, spark,
           }))
         } catch { /* skip */ }
-      }))
+      })
       all.sort((a, b) => (b.trade.createdAt || '').localeCompare(a.trade.createdAt || ''))
       const items = all.slice(0, 40).map(({ trade, symbol, name, imageUrl, change24hPct, marketcapUsd, spark }) => ({
         id: trade.id, token: trade.token, tokenSymbol: symbol, tokenName: name,
@@ -101,12 +185,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // ─── /api/leaderboard ────────────────────────────────────
     if (url.includes('/api/leaderboard')) {
-      const data = await jfetch<any>(`/api/launchpad/tokens?chain=base&limit=40&sort=volume`)
+      const data = await jfetchCached<any>(`/api/launchpad/tokens?chain=base&limit=40&sort=volume`)
       const top = (data.tokens || []).slice(0, 40)
       const map = new Map<string, { volumeUsd: number; buys: number; sells: number; createdAt?: string }>()
-      await Promise.all(top.map(async (t: any) => {
+      await poolMap(top, 6, async (t: any) => {
         try {
-          const tr = await jfetch<any>(`/api/launchpad/tokens/${t.address}/trades?chain=base&limit=60`)
+          const tr = await jfetchCached<any>(`/api/launchpad/tokens/${t.address}/trades?chain=base&limit=60`, 15000)
           ;(tr.trades || []).forEach((trade: any) => {
             const trader = trade.trader
             const cur = map.get(trader) || { volumeUsd: 0, buys: 0, sells: 0, createdAt: trade.createdAt }
@@ -117,7 +201,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             map.set(trader, cur)
           })
         } catch { /* skip */ }
-      }))
+      })
       let maxVol = 0
       const rows = Array.from(map.entries()).map(([trader, v]) => {
         maxVol = Math.max(maxVol, v.volumeUsd)

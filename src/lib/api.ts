@@ -53,7 +53,9 @@ async function get<T>(path: string): Promise<T> {
 }
 
 export async function fetchTokens(limit = 50, sort = 'trending'): Promise<{ total: number; hasNext: boolean; tokens: Token[] }> {
-  return get(`/api/tokens?limit=${limit}&sort=${sort}`)
+  const j = await get<{ total?: number; hasNext?: boolean; tokens?: Token[] }>(`/api/tokens?limit=${limit}&sort=${sort}`)
+  if (!Array.isArray(j.tokens)) throw new Error('bad tokens payload')
+  return { total: j.total ?? j.tokens.length, hasNext: !!j.hasNext, tokens: j.tokens }
 }
 
 export async function fetchFeed(limit = 40): Promise<FeedItem[]> {
@@ -62,6 +64,28 @@ export async function fetchFeed(limit = 40): Promise<FeedItem[]> {
 
 export async function fetchLeaderboard(limit = 20): Promise<{ maxScore: number; rows: LeaderRow[] }> {
   return get(`/api/leaderboard?limit=${limit}`)
+}
+
+export interface Position {
+  symbol: string
+  name: string
+  token: string
+  imageUrl?: string
+  buys: number
+  sells: number
+  buyVolUsd: number
+  sellVolUsd: number
+  entry: number
+  current: number
+  exposureUsd: number
+  pnlUsd: number
+  pnlPct: number
+  open: boolean
+}
+
+export async function fetchPositions(wallet: string): Promise<{ positions: Position[]; trades: FeedItem[] }> {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(wallet)) return { positions: [], trades: [] }
+  return get(`/api/positions?wallet=${wallet}`)
 }
 
 export async function fetchFollows(follower?: string): Promise<string[]> {
