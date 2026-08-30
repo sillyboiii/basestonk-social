@@ -35,6 +35,9 @@ export type Database = {
           token_image: string | null
           likes: number
           created_at: string
+          kind: string
+          token_address: string | null
+          entry_price: number | null
         }
         Insert: {
           id?: number
@@ -44,6 +47,9 @@ export type Database = {
           token_image?: string | null
           likes?: number
           created_at?: string
+          kind?: string
+          token_address?: string | null
+          entry_price?: number | null
         }
         Update: {
           id?: number
@@ -53,6 +59,9 @@ export type Database = {
           token_image?: string | null
           likes?: number
           created_at?: string
+          kind?: string
+          token_address?: string | null
+          entry_price?: number | null
         }
         Relationships: []
       }

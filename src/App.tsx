@@ -2,19 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   fetchTokens, fetchFeed, fetchLeaderboard, fetchPosts, createPost, likePost,
   fetchAccount, saveAccount, fetchPositions,
-  fetchFollows, addFollow, removeFollow,
+  fetchFollows, addFollow, removeFollow, fetchCallers,
   fmtUsd, fmtNum,
 } from './lib/api'
-import type { Token, FeedItem, LeaderRow, UserPost, Position, Account } from './lib/api'
+import type { Token, FeedItem, LeaderRow, UserPost, Position, Account, CallerRow } from './lib/api'
 import { derivePosts, avatarGradient, initials, relativeTime, shortAddr } from './lib/social'
 import type { Post } from './lib/social'
 
-type View = 'home' | 'trending' | 'degens' | 'portfolio' | 'profile'
+type View = 'home' | 'trending' | 'degens' | 'callers' | 'portfolio' | 'profile'
 
 const NAV: { key: View; label: string; icon: string }[] = [
   { key: 'home', label: 'Feed', icon: '🔥' },
   { key: 'trending', label: 'Trending', icon: '📈' },
   { key: 'degens', label: 'Degens', icon: '🎯' },
+  { key: 'callers', label: 'Callers', icon: '👑' },
   { key: 'portfolio', label: 'Bag', icon: '🪝' },
 ]
 
@@ -264,6 +265,7 @@ function probeTicker(body: string, caret: number): { start: number; query: strin
 function Composer({ identity, allStonks, tokens, onPosted, onOpenProfile }: { identity: string; allStonks: Token[]; tokens: Token[]; onPosted: () => void; onOpenProfile: (wallet: string) => void }) {
   const [body, setBody] = useState('')
   const [tag, setTag] = useState<Token | null>(null)
+  const [shot, setShot] = useState(false)
   const [caret, setCaret] = useState(0)
   const [tickPos, setTickPos] = useState<{ x: number; y: number; line?: number; flip?: boolean } | null>(null)
   const [picked, setPicked] = useState<string | null>(null)
@@ -335,9 +337,10 @@ function Composer({ identity, allStonks, tokens, onPosted, onOpenProfile }: { id
     setSubmitting(true)
     setError(null)
     try {
-      await createPost({ author: identity, body: clean, tokenSymbol: tag?.symbol, tokenImage: tag?.imageUrl })
+      await createPost({ author: identity, body: clean, tokenSymbol: tag?.symbol, tokenImage: tag?.imageUrl, kind: shot ? 'shot' : 'post', tokenAddress: tag?.address })
       setBody('')
       setTag(null)
+      setShot(false)
       setTickPos(null)
       setPicked(null)
       onPosted()
@@ -480,13 +483,21 @@ function Composer({ identity, allStonks, tokens, onPosted, onOpenProfile }: { id
           <div className="mt-2 flex items-center justify-between gap-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               {tag && (
-                <button onClick={() => setTag(null)} className="flex items-center gap-1.5 rounded-full bg-[#0d142b] px-2 py-1 text-[11px] text-[#b3bdd4] hover:text-white">
+                <button onClick={() => { setTag(null); setShot(false) }} className="flex items-center gap-1.5 rounded-full bg-[#0d142b] px-2 py-1 text-[11px] text-[#b3bdd4] hover:text-white">
                   <CoinGlyph src={tag.imageUrl || tag.logoUrl} symbol={tag.symbol} size={16} ring={false} />
                   <span className="font-bold text-[#0052ff]">${tag.symbol}</span>
                   ✕
                 </button>
               )}
-              <span className="text-[10px] text-[#3a4a75]">$ = tag token</span>
+              {tag && (
+                <button
+                  onClick={() => setShot((v) => !v)}
+                  className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-all ${shot ? 'bg-gradient-to-r from-[#ff6ec7] to-[#7b5cff] text-white shadow-[0_0_14px_rgba(255,110,199,0.45)]' : 'border border-[#1f2740] text-[#b3bdd4] hover:border-[#7b5cff]/60 hover:text-white'}`}
+                >
+                  🎯 {shot ? 'Called' : 'Call it'}
+                </button>
+              )}
+              <span className="text-[10px] text-[#3a4a75]">$ = tag token{shot ? ' · entry price locks in when you post' : ''}</span>
             </div>
             <span className={`shrink-0 text-[11px] font-semibold ${body.length >= 240 ? 'text-[#ea6055]' : 'text-[#3a4a75]'}`}>{body.length}/280</span>
           </div>
@@ -494,10 +505,10 @@ function Composer({ identity, allStonks, tokens, onPosted, onOpenProfile }: { id
           <div className="mt-3 flex justify-end">
             <button
               onClick={submit}
-              disabled={!body.trim() || submitting}
-              className="btn-gem shimmer-btn px-6 py-2 text-[13px] font-bold disabled:opacity-40"
+              disabled={!body.trim() || submitting || (shot && !tag)}
+              className={`shimmer-btn px-6 py-2 text-[13px] font-bold disabled:opacity-40 ${shot ? 'bg-gradient-to-r from-[#ff6ec7] to-[#7b5cff] text-white hover:brightness-110' : 'btn-gem'}`}
             >
-              {submitting ? 'Posting…' : 'Post'}
+              {submitting ? (shot ? 'Calling…' : 'Posting…') : shot ? 'Call shot 🎯' : 'Post'}
             </button>
           </div>
         </div>
@@ -508,9 +519,24 @@ function Composer({ identity, allStonks, tokens, onPosted, onOpenProfile }: { id
 
 // ─── User post card (social) ───────────────────────────────────────────────
 
-function UserPostCard({ post, onLike, onOpen, delay = 0 }: { post: UserPost; onLike: (id: number) => Promise<void> | void; onOpen?: (wallet: string) => void; delay?: number }) {
+function UserPostCard({ post, onLike, onOpen, delay = 0, tokens }: { post: UserPost; onLike: (id: number) => Promise<void> | void; onOpen?: (wallet: string) => void; delay?: number; tokens?: Token[] }) {
   const [liked, setLiked] = useState<'idle' | 'pending' | 'done'>('idle')
   const likedActive = liked !== 'idle'
+
+  const prices = useMemo(() => {
+    const byAddr = new Map<string, number>()
+    const bySym = new Map<string, number>()
+    for (const t of tokens || []) {
+      if (t.address) byAddr.set(t.address.toLowerCase(), t.priceUsd)
+      if (t.symbol) bySym.set(t.symbol.toUpperCase(), t.priceUsd)
+    }
+    return { byAddr, bySym }
+  }, [tokens])
+
+  const entry = post.kind === 'shot' && post.entry_price != null ? Number(post.entry_price) : null
+  const cur = entry ? prices.byAddr.get(String(post.token_address || '').toLowerCase()) || prices.bySym.get(String(post.token_symbol || '').toUpperCase()) || 0 : 0
+  const move = entry != null && cur > 0 ? ((cur - entry) / entry) * 100 : null
+  const shotUp = move != null && move >= 0
   return (
     <article className="card p-4 fade-up" style={{ animationDelay: `${delay}ms` }}>
       <div className="flex items-center gap-3">
@@ -535,6 +561,14 @@ function UserPostCard({ post, onLike, onOpen, delay = 0 }: { post: UserPost; onL
         )}
       </div>
       <p className="mt-3 whitespace-pre-wrap break-words text-[14px] leading-relaxed text-white/90">{post.body}</p>
+      {entry != null && (
+        <div className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2 ${shotUp ? 'bg-[#45d68f]/10 ring-1 ring-[#45d68f]/30' : 'bg-[#ea6055]/10 ring-1 ring-[#ea6055]/30'}`}>
+          <span className="rounded-full bg-gradient-to-r from-[#ff6ec7] to-[#7b5cff] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-[0_0_10px_rgba(255,110,199,0.4)]">🎯 shot @ {fmtUsd(entry, 6)}</span>
+          {move != null
+            ? <span className={`font-mono text-[12px] font-extrabold ${shotUp ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{shotUp ? '▲' : '▼'} {Math.abs(move).toFixed(1)}% {shotUp ? 'hit' : 'since call'}</span>
+            : <span className="text-[11px] text-[#b3bdd4]">…pricing token</span>}
+        </div>
+      )}
       <div className="mt-3 flex items-center gap-2">
         <button
           onClick={() => {
@@ -957,11 +991,67 @@ function DegensView({ rows, onOpen }: { rows: LeaderRow[]; onOpen?: (wallet: str
   )
 }
 
+// ─── Callers view: shot-callers ranked by hit rate (zora energy) ───────────
+
+function CallersView({ rows, maxHitRate, onOpen }: { rows: CallerRow[]; maxHitRate: number; onOpen: (wallet: string) => void }) {
+  return (
+    <div className="fade-in">
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-3 px-1">
+        <div>
+          <h1 className="font-display text-3xl font-black tracking-tight text-white">Callers <span className="bg-gradient-to-r from-[#ff6ec7] to-[#7b5cff] bg-clip-text text-transparent">👑</span></h1>
+          <p className="mt-1 text-[13px] font-medium text-[#b3bdd4]">Best shot-callers on BaseStonk, ranked by hit rate. A call counts as a hit when the token is green vs your entry.</p>
+        </div>
+      </div>
+      <div className="mx-auto max-w-3xl space-y-2">
+        {rows.map((r, i) => {
+          const pct = r.hitRate / Math.max(maxHitRate, 0.0001)
+          const medal = i === 0 ? 'text-[#f5c847]' : i === 1 ? 'text-[#b3bdd4]' : i === 2 ? 'text-[#d9904f]' : 'text-[#3a4a75]'
+          return (
+            <div
+              key={r.author}
+              onClick={() => onOpen(r.author)}
+              className={`card cursor-pointer p-4 transition-colors hover:bg-[#0d142b]/70 fade-up ${i === 0 ? 'ring-1 ring-[#f5c847]/40' : ''}`}
+              style={{ animationDelay: `${i * 40}ms` }}
+            >
+              <div className="flex items-center gap-3">
+                <span className={`w-5 shrink-0 text-center font-display text-[15px] font-bold ${medal}`}>{i + 1}</span>
+                <Avatar wallet={r.author} size={36} />
+                <div className="min-w-0 flex-1">
+                  <CopyAddr addr={r.author} short={6} className="text-[13px] font-bold text-white" />
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-[#b3bdd4]">
+                    <span className="font-bold text-[#ff6ec7]">🎯 {r.calls} calls</span>
+                    <span>{r.wins} green</span>
+                    {r.best?.symbol && <span className="truncate">best ${r.best.symbol} {r.best.move > 0 ? '+' : ''}{r.best.move.toFixed(0)}%</span>}
+                  </div>
+                  <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-[#1f2740]">
+                    <div className="h-full rounded-full bg-gradient-to-r from-[#ff6ec7] to-[#7b5cff]" style={{ width: `${Math.max(4, pct * 100)}%` }} />
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="font-display text-[18px] font-black text-white">{(r.hitRate * 100).toFixed(0)}%</div>
+                  <div className={`text-[11px] font-bold ${r.avgMove >= 0 ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>avg {r.avgMove > 0 ? '+' : ''}{r.avgMove.toFixed(0)}%</div>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+        {!rows.length && (
+          <div className="card p-8 text-center pop-in">
+            <div className="text-2xl">🎯</div>
+            <div className="mt-2 text-[14px] font-semibold text-white">No shots on record yet.</div>
+            <div className="mt-1 text-[12px] text-[#b3bdd4]">Be the first — tag a token in the composer and hit Call 🎯. Entry price locks in at post time.</div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Profile view: a wallet's posts + trades, followable ───────────────────
 
 function ProfileView({ identity, wallet, followed, userPosts, feedPosts, tokens, onFollow, onLike, onBack, onOpen }: {
   identity: string; wallet: string; followed: boolean; userPosts: UserPost[]; feedPosts: Post[]; tokens: Token[];
-  onFollow: () => void; onLike: (id: number) => void; onBack: () => void; onOpen: (wallet: string) => void;
+  onFollow: () => void; onLike: (id: number) => Promise<void> | void; onBack: () => void; onOpen: (wallet: string) => void;
 }) {
   const [acc, setAcc] = useState<Account | null>(null)
   useEffect(() => {
@@ -1010,7 +1100,7 @@ function ProfileView({ identity, wallet, followed, userPosts, feedPosts, tokens,
             <div className="card p-6 text-center text-[12px] text-[#3a4a75]">No posts yet — wallet silence.</div>
           ) : (
             <div className="space-y-3">
-              {myPosts.map((p, i) => <UserPostCard key={p.id} post={p} onLike={onLike} onOpen={onOpen} delay={i * 30} />)}
+              {myPosts.map((p, i) => <UserPostCard key={p.id} post={p} onLike={onLike} onOpen={onOpen} delay={i * 30} tokens={tokens} />)}
             </div>
           )}
         </div>
@@ -1045,6 +1135,8 @@ export default function App() {
   const [allStonks, setAllStonks] = useState<Token[]>([])
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [leader, setLeader] = useState<LeaderRow[]>([])
+  const [callers, setCallers] = useState<CallerRow[]>([])
+  const [callersMax, setCallersMax] = useState(1)
   const [userPosts, setUserPosts] = useState<UserPost[]>([])
   const [loading, setLoading] = useState(true)
   const composerRef = useRef<HTMLDivElement>(null)
@@ -1107,14 +1199,16 @@ export default function App() {
       const seen = new Set<string>()
       setAllStonks([...arr(volRes), ...trend].filter((t) => t.symbol && !seen.has(t.symbol) && !!seen.add(t.symbol)))
     }
-    const [feedRes, leadRes, postsRes] = await Promise.all([
+    const [feedRes, leadRes, postsRes, callersRes] = await Promise.all([
       fetchFeed(40).catch(() => null),
       fetchLeaderboard(20).catch(() => null),
       fetchPosts(50).catch(() => null),
+      fetchCallers(24).catch(() => null),
     ])
     if (Array.isArray(feedRes)) setFeed(feedRes)
     if (Array.isArray(leadRes?.rows)) setLeader(leadRes!.rows)
     if (Array.isArray(postsRes)) setUserPosts(postsRes)
+    if (Array.isArray(callersRes?.rows)) { setCallers(callersRes!.rows); setCallersMax(callersRes?.maxHitRate || 1) }
     setLoading(false)
   }, [])
 
@@ -1197,6 +1291,7 @@ export default function App() {
       <main className="relative z-10 mx-auto max-w-7xl gap-6 px-4 pb-28 pt-6 md:pb-6">
         {view === 'trending' && <TrendingView tokens={tokens} />}
         {view === 'degens' && <DegensView rows={leader} onOpen={openProfile} />}
+        {view === 'callers' && <CallersView rows={callers} maxHitRate={callersMax} onOpen={openProfile} />}
         {view === 'portfolio' && <PortfolioView identity={identity} tokens={tokens} leader={leader} posts={posts} onPosted={loadAll} onOpen={openProfile} />}
 
         {view === 'profile' && profileWallet && (
@@ -1259,7 +1354,7 @@ export default function App() {
                   </div>
                 )}
                 {visiblePosts.map((p, i) => (
-                  <UserPostCard key={p.id} post={p} onLike={handleLike} onOpen={openProfile} delay={i * 35} />
+                  <UserPostCard key={p.id} post={p} onLike={handleLike} onOpen={openProfile} delay={i * 35} tokens={tokens} />
                 ))}
               </div>
             </section>

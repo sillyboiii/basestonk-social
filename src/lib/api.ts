@@ -105,7 +105,7 @@ export async function fetchPosts(limit = 50): Promise<UserPost[]> {
   return get(`/api/posts?limit=${limit}`)
 }
 
-export async function createPost(input: { author: string; body: string; tokenSymbol?: string; tokenImage?: string }): Promise<UserPost> {
+export async function createPost(input: { author: string; body: string; tokenSymbol?: string; tokenImage?: string; kind?: 'post' | 'shot'; tokenAddress?: string }): Promise<UserPost> {
   const res = await fetch('/api/posts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
   if (!res.ok) {
     const j = await res.json().catch(() => null)
@@ -152,8 +152,26 @@ export interface UserPost {
   token_image: string | null
   likes: number
   created_at: string
+  kind?: 'post' | 'shot' | string | null
+  token_address?: string | null
+  entry_price?: number | string | null
   handle?: string | null
   avatar?: string | null
+}
+
+export interface CallerRow {
+  author: string
+  calls: number
+  wins: number
+  hitRate: number
+  avgMove: number
+  best?: { symbol: string | null; move: number } | null
+  lastAt: string
+}
+
+export async function fetchCallers(limit = 24): Promise<{ rows: CallerRow[]; maxHitRate: number }> {
+  const j = await get<{ rows?: CallerRow[]; maxHitRate?: number }>(`/api/callers?limit=${limit}`)
+  return { rows: j.rows || [], maxHitRate: j.maxHitRate || 1 }
 }
 
 export interface Account {
