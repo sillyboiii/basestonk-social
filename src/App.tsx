@@ -77,43 +77,14 @@ function PostCard({ post }: { post: Post }) {
 
 // ─── Left rail / brand ─────────────────────────────────────────────────────
 
-function LeftRail({ crew }: { crew: string[] }) {
+function LeftRail() {
   return (
     <div className="sticky top-20 hidden self-start lg:block lg:w-60">
-      <button className="mb-7 flex items-center gap-3 text-left">
-        <img src="/gem-blue-256.png" alt="BaseStonk gem" className="h-9 w-9 gem-glow" />
-        <div>
-          <div className="font-display text-lg font-black leading-none tracking-tight text-white">
-            BASE<span className="text-[#2f7bff]">STONK</span>
-          </div>
-          <div className="mt-1 text-[9px] font-semibold uppercase tracking-[0.28em] text-[#7c8aa5]">The Crew</div>
-        </div>
-      </button>
       <nav className="space-y-1 text-[13px] font-medium">
-        {['Home', 'Trending stonks', 'Top degens', 'Your crew', 'P&L wall'].map((l) => (
+        {['Home', 'Trending stonks', 'Top degens', 'P&L wall'].map((l) => (
           <a key={l} href="#" className="flex items-center gap-3 rounded-xl px-3 py-2 text-[#9aa7cc] transition-colors hover:bg-[#0a1028] hover:text-white">{l}</a>
         ))}
       </nav>
-
-      <div className="mt-8">
-        <div className="mb-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#7c8aa5]">
-          <span className="h-1.5 w-1.5 rounded-full bg-[#2f7bff]" /> Your Crew
-        </div>
-        {crew.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-[#1c2a4d] p-3 text-center text-[11px] leading-relaxed text-[#7c8aa5]">
-            Follow wallets to build your crew — their moves land here.
-          </div>
-        ) : (
-          <div className="space-y-1">
-            {crew.map((c) => (
-              <div key={c} className="flex items-center gap-2 text-[12px] text-[#9aa7cc]">
-                <Avatar addr={c} size={22} />
-                <span className="font-mono">{shortAddr(c)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   )
 }
@@ -247,7 +218,7 @@ export default function App() {
       </header>
 
       <main className="mx-auto flex max-w-6xl gap-8 px-4 py-6">
-        <LeftRail crew={[]} />
+        <LeftRail />
 
         {/* CENTER: the feed */}
         <section className="min-w-0 flex-1">
