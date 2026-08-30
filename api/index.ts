@@ -1,15 +1,16 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createClient } from '@supabase/supabase-js'
+import type { Database } from '../src/lib/database.types'
 
 const BASE = 'https://api.basestonk.io'
 
-let supabase: ReturnType<typeof createClient> | null = null
+let supabase: ReturnType<typeof createClient<Database>> | null = null
 function getSupabase() {
   if (supabase) return supabase
   const url = process.env.VITE_SUPABASE_URL || ''
   const anon = process.env.VITE_SUPABASE_ANON_KEY || ''
   if (!url || !anon) return null
-  supabase = createClient(url, anon)
+  supabase = createClient<Database>(url, anon)
   return supabase
 }
 

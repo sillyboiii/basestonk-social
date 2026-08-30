@@ -9,3 +9,5 @@ data/
 .vercel/
 server/*.log
 *.tsbuildinfo
+.vercel
+.env*
