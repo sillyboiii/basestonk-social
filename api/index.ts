@@ -126,6 +126,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.json({ maxScore: maxVol, rows })
     }
 
+    // ─── /api/posts ──────────────────────────────────────────
+    if (url.includes('/api/posts')) {
+      const sb = getSupabase()
+      if (!sb) return res.status(500).json({ error: 'posts not configured' })
+
+      const likeMatch = url.match(/\/api\/posts\/(\d+)\/like/)
+      if (likeMatch && req.method === 'POST') {
+        const id = Number(likeMatch[1])
+        const { data: cur, error: curErr } = await sb.from('posts').select('likes').eq('id', id).single()
+        if (curErr) return res.status(500).json({ error: curErr.message })
+        const { data, error } = await sb.from('posts').update({ likes: (cur?.likes || 0) + 1 }).eq('id', id).select().single()
+        if (error) return res.status(500).json({ error: error.message })
+        return res.json(data)
+      }
+
+      // GET ?limit=
+      if (req.method === 'GET') {
+        const u = new URL(url, 'http://x')
+        const limit = Math.min(Number(u.searchParams.get('limit')) || 50, 200)
+        const { data, error } = await sb.from('posts').select('*').order('created_at', { ascending: false }).limit(limit)
+        if (error) return res.status(500).json({ error: error.message })
+        return res.json(data || [])
+      }
+
+      // POST { author, body, tokenSymbol?, tokenImage? }
+      if (req.method === 'POST') {
+        const { author, body, tokenSymbol, tokenImage } = req.body || {}
+        const clean = String(body || '').trim()
+        if (!author || !clean) return res.status(400).json({ error: 'author and body are required' })
+        if (clean.length > 280) return res.status(400).json({ error: 'body too long (max 280)' })
+        const { data, error } = await sb.from('posts').insert({
+          author: String(author),
+          body: clean,
+          token_symbol: tokenSymbol ? String(tokenSymbol) : null,
+          token_image: tokenImage ? String(tokenImage) : null,
+        }).select().single()
+        if (error) return res.status(500).json({ error: error.message })
+        return res.json(data)
+      }
+    }
+
     // ─── /api/follows ────────────────────────────────────────
     if (url.includes('/api/follows')) {
       const sb = getSupabase()

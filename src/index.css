@@ -67,7 +67,7 @@ body {
 .bs-badge-soft { color: #e8edf7; background: rgba(232,237,247,0.1); }
 
 .card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.005));
+  background: linear-gradient(180deg, #0c1531 0%, #091128 100%);
   border: 1px solid var(--border);
   border-radius: 16px;
 }

@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  fetchTokens, fetchFeed, fetchLeaderboard,
+  fetchTokens, fetchFeed, fetchLeaderboard, fetchPosts, createPost, likePost,
   fmtUsd, fmtNum,
 } from './lib/api'
-import type { Token, FeedItem, LeaderRow } from './lib/api'
-import { derivePosts, initials, relativeTime, shortAddr } from './lib/social'
+import type { Token, FeedItem, LeaderRow, UserPost } from './lib/api'
+import { derivePosts, avatarGradient, initials, relativeTime, shortAddr } from './lib/social'
 import type { Post } from './lib/social'
 
 type View = 'home' | 'trending' | 'degens' | 'plwall'
@@ -15,6 +15,19 @@ const NAV: { key: View; label: string }[] = [
   { key: 'degens', label: 'Degens' },
   { key: 'plwall', label: 'P&L wall' },
 ]
+
+// ─── Identity: stable pseudo-wallet per browser ────────────────────────────
+
+function useIdentity() {
+  return useState(() => {
+    let a = localStorage.getItem('bstonk_id')
+    if (!a || !/^0x[0-9a-f]{40}$/i.test(a)) {
+      a = '0x' + Array.from({ length: 40 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('')
+      localStorage.setItem('bstonk_id', a)
+    }
+    return a
+  })[0]
+}
 
 // ─── Sparkline ─────────────────────────────────────────────────────────────
 
@@ -59,54 +72,128 @@ function CoinGlyph({ src, symbol, size = 44, ring = true }: { src?: string; symb
   )
 }
 
-// ─── Feed post card (pump.fun-style, on BaseStonk bones) ───────────────────
+// ─── Composer: actually post ───────────────────────────────────────────────
 
-function PostCard({ post }: { post: Post }) {
-  const buy = post.side === 'buy'
-  const up = (post.change24hPct ?? 0) >= 0
-  const actionColor = buy ? 'text-[#45d68f]' : 'text-[#ea6055]'
+function Composer({ identity, tokens, onPosted }: { identity: string; tokens: Token[]; onPosted: () => void }) {
+  const [body, setBody] = useState('')
+  const [tag, setTag] = useState<Token | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function submit() {
+    const clean = body.trim()
+    if (!clean || submitting) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      await createPost({
+        author: identity,
+        body: clean,
+        tokenSymbol: tag?.symbol,
+        tokenImage: tag?.imageUrl,
+      })
+      setBody('')
+      setTag(null)
+      onPosted()
+    } catch (e: any) {
+      setError(e.message || 'Post failed')
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
-    <article className="card overflow-hidden p-5">
+    <div className="card p-4">
+      <div className="flex items-start gap-3">
+        <div
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[11px] font-bold text-white"
+          style={{ background: avatarGradient(identity) }}
+        >
+          {initials(identity)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="font-mono text-[11px] text-[#b3bdd4]">{shortAddr(identity)}</span>
+            <span className="text-[12px] font-bold text-[#28a165]">on Base · live</span>
+          </div>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value.slice(0, 280))}
+            rows={3}
+            placeholder="Call the 100x. Flex the bag. Shill your position…"
+            className="mt-2 w-full resize-none rounded-xl border border-[#1f2740] bg-[#050a1e]/60 p-3 text-[14px] text-white placeholder-[#3a4a75] outline-none transition-colors focus:border-[#0052ff]"
+          />
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <select
+                  value={tag?.address ?? ''}
+                  onChange={(e) => setTag(tokens.find((t) => t.address === e.target.value) || null)}
+                  className={`appearance-none rounded-full border px-3 py-1.5 text-[12px] font-semibold outline-none transition-colors ${tag ? 'border-[#0052ff] bg-[#0d142b] text-white' : 'border-[#1f2740] bg-[#0d142b] text-[#b3bdd4]'}`}
+                >
+                  <option value="">+ tag token</option>
+                  {tokens.slice(0, 20).map((t) => (
+                    <option key={t.address} value={t.address}>${t.symbol} · {t.name}</option>
+                  ))}
+                </select>
+              </div>
+              {tag && (
+                <button onClick={() => setTag(null)} className="flex items-center gap-1.5 rounded-full bg-[#0d142b] px-2 py-1 text-[11px] text-[#b3bdd4] hover:text-white">
+                  <CoinGlyph src={tag.imageUrl || tag.logoUrl} symbol={tag.symbol} size={16} ring={false} />
+                  <span className="font-bold text-[#0052ff]">${tag.symbol}</span>
+                  ✕
+                </button>
+              )}
+            </div>
+            <span className={`text-[11px] font-semibold ${body.length >= 240 ? 'text-[#ea6055]' : 'text-[#3a4a75]'}`}>{body.length}/280</span>
+          </div>
+          {error && <div className="mt-2 rounded-lg border border-[#ea6055]/40 bg-[#ea6055]/10 p-2 text-[12px] text-[#ea6055]">{error}</div>}
+          <div className="mt-3 flex justify-end">
+            <button
+              onClick={submit}
+              disabled={!body.trim() || submitting}
+              className="btn-gem px-6 py-2 text-[13px] font-bold disabled:opacity-40"
+            >
+              {submitting ? 'Posting…' : 'Post'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── User post card (social) ───────────────────────────────────────────────
+
+function UserPostCard({ post, onLike }: { post: UserPost; onLike: (id: number) => void }) {
+  const [liked, setLiked] = useState(false)
+  return (
+    <article className="card p-4">
       <div className="flex items-center gap-3">
-        <CoinGlyph src={post.tokenImageUrl} symbol={post.tokenSymbol} size={44} />
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white" style={{ background: avatarGradient(post.author) }}>
+          {initials(post.author)}
+        </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate font-mono text-[13px] font-medium text-white">{post.traderShort}</span>
-            {post.streak && post.streak > 2 && (
-              <span className="shrink-0 text-[11px] font-bold text-[#f5c847]">🔥 {post.streak}</span>
-            )}
+            <span className="truncate font-mono text-[13px] font-semibold text-white">{shortAddr(post.author)}</span>
           </div>
-          <div className="text-[11px] text-[#b3bdd4]">
-            <span className={actionColor}>{buy ? 'bought' : 'sold'} {fmtUsd(post.volumeUsd)}</span>
-            <span> of </span>
-            <span className="font-bold text-[#0052ff]">${post.tokenSymbol}</span>
-            <span> · {relativeTime(post.createdAt)}</span>
-          </div>
+          <div className="text-[11px] text-[#b3bdd4]">{relativeTime(post.created_at)}</div>
         </div>
-        {post.spark && post.spark.length >= 2 && (
-          <div className="shrink-0"><Sparkline data={post.spark} up={up} w={140} h={36} /></div>
+        {post.token_symbol && (
+          <div className="flex items-center gap-1.5 rounded-full border border-[#0052ff]/40 bg-[#0d142b] px-2.5 py-1">
+            <CoinGlyph src={post.token_image || undefined} symbol={post.token_symbol} size={18} ring={false} />
+            <span className="text-[12px] font-bold text-[#0052ff]">${post.token_symbol}</span>
+          </div>
         )}
       </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-[#1f2740] bg-[#1f2740]">
-        <div className="bg-[#0d142b] px-3 py-2">
-          <div className="text-[9px] uppercase tracking-wider text-[#b3bdd4]">Market cap</div>
-          <div className="font-display text-[13px] font-black text-white">{fmtUsd(post.marketcapUsd ?? 0)}</div>
-        </div>
-        <div className="bg-[#0d142b] px-3 py-2">
-          <div className="text-[9px] uppercase tracking-wider text-[#b3bdd4]">24h</div>
-          <div className={`font-display text-[13px] font-black ${up ? 'text-[#45d68f]' : 'text-[#ea6055]'}`}>{up ? '▲' : '▼'} {Math.abs(post.change24hPct ?? 0).toFixed(1)}%</div>
-        </div>
-        <div className="bg-[#0d142b] px-3 py-2">
-          <div className="text-[9px] uppercase tracking-wider text-[#b3bdd4]">Price</div>
-          <div className="font-display text-[13px] font-black text-white">{fmtUsd(post.priceUsd, 6)}</div>
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-center justify-between text-[11px] text-[#b3bdd4]">
-        <a href={`https://basescan.org/address/${post.trader}`} target="_blank" rel="noreferrer" className="font-mono transition-colors hover:text-white">{shortAddr(post.trader, 6)} · view</a>
-        <a href={`https://basescan.org/tx/${post.txn}`} target="_blank" rel="noreferrer" className="font-mono transition-colors hover:text-white">tx {post.txn.slice(0, 8)}…</a>
+      <p className="mt-3 whitespace-pre-wrap break-words text-[14px] leading-relaxed text-white/90">{post.body}</p>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          onClick={() => { setLiked(true); onLike(post.id) }}
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-semibold transition-all ${liked ? 'border-[#ea6055]/60 bg-[#ea6055]/10 text-[#ea6055]' : 'border-[#1f2740] text-[#b3bdd4] hover:border-[#ea6055]/40 hover:text-[#ea6055]'}`}
+        >
+          {liked ? '♥' : '♡'} {post.likes + (liked ? 1 : 0)}
+        </button>
       </div>
     </article>
   )
@@ -317,8 +404,11 @@ export default function App() {
   const [tokens, setTokens] = useState<Token[]>([])
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [leader, setLeader] = useState<LeaderRow[]>([])
+  const [userPosts, setUserPosts] = useState<UserPost[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
+  const composerRef = useRef<HTMLDivElement>(null)
+  const identity = useIdentity()
 
   const posts = useMemo(() => derivePosts(feed), [feed])
 
@@ -336,14 +426,16 @@ export default function App() {
 
   async function loadAll() {
     try {
-      const [tokRes, feedRes, leadRes] = await Promise.all([
+      const [tokRes, feedRes, leadRes, postsRes] = await Promise.all([
         fetchTokens(60, 'trending'),
         fetchFeed(40),
         fetchLeaderboard(20),
+        fetchPosts(50).catch(() => [] as UserPost[]),
       ])
       setTokens(tokRes.tokens)
       setFeed(feedRes)
       setLeader(leadRes.rows)
+      setUserPosts(Array.isArray(postsRes) ? postsRes : [])
       setErr(null)
     } catch (e: any) {
       setErr(e.message || 'Failed to load data')
@@ -356,9 +448,17 @@ export default function App() {
   useEffect(() => {
     const t = setInterval(async () => {
       try { setFeed(await fetchFeed(40)) } catch { /* keep old */ }
-    }, 12000)
+      try { setUserPosts(await fetchPosts(50)) } catch { /* keep old */ }
+    }, 15000)
     return () => clearInterval(t)
   }, [])
+
+  async function handleLike(id: number) {
+    try {
+      const updated = await likePost(id)
+      setUserPosts((prev) => prev.map((p) => (p.id === id ? { ...p, likes: updated.likes } : p)))
+    } catch { /* keep old */ }
+  }
 
   if (loading) {
     return (
@@ -382,7 +482,7 @@ export default function App() {
         <div className="bs-backdrop__stars bs-backdrop__stars--near" />
       </div>
 
-      <header className="sticky top-0 z-40 bg-[#050a1e]/70 backdrop-blur-md">
+      <header className="sticky top-0 z-40 bg-[#050a1e]/80 backdrop-blur-md">
         <div className="mx-auto flex h-[70px] max-w-7xl items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-2.5">
             <img src="/bstonk.webp" alt="" className="h-9 w-9" />
@@ -402,7 +502,9 @@ export default function App() {
               <span className="h-2 w-2 rounded-full bg-[#45d68f] pulse-dot" />
               <span className="text-xs font-medium text-[#b3bdd4]">Live</span>
             </div>
-            <button className="btn-gem px-5 py-2 text-[13px] font-bold" onClick={() => setView('plwall')}>Post</button>
+            <button className="btn-gem px-5 py-2 text-[13px] font-bold" onClick={() => { setView('home'); setTimeout(() => composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80) }}>
+              Post
+            </button>
           </div>
         </div>
       </header>
@@ -432,7 +534,7 @@ export default function App() {
               <div className="mb-5 flex flex-wrap items-end justify-between gap-3 px-1">
                 <div>
                   <h1 className="font-display text-4xl font-black tracking-tight text-white">The <span className="text-[#0052ff]">feed</span></h1>
-                  <p className="mt-1 text-[14px] font-medium text-[#b3bdd4]">Real moves from BaseStonk degens, live on Base.</p>
+                  <p className="mt-1 text-[14px] font-medium text-[#b3bdd4]">Degens call their shots, flex their bags, shill their coins.</p>
                 </div>
                 <div className="hidden gap-2 sm:flex">
                   <div className="card px-4 py-2"><div className="text-[10px] uppercase tracking-wider text-[#b3bdd4]">24h vol</div><div className="font-display text-lg font-black stat-grad">{fmtUsd(stats.vol24)}</div></div>
@@ -440,14 +542,25 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="space-y-4">
+              <div ref={composerRef} className="space-y-3">
+                <Composer identity={identity} tokens={tokens} onPosted={loadAll} />
+              </div>
+
+              <div className="mt-4 space-y-4">
                 {err && (
                   <div className="rounded-xl border border-[#ea6055]/40 bg-[#ea6055]/10 p-3 text-sm text-[#ea6055]">
                     Some data is temporarily unavailable ({err}). Retrying automatically…
                   </div>
                 )}
-                {posts.map((p) => (
-                  <PostCard key={p.id} post={p} />
+                {userPosts.length === 0 && (
+                  <div className="card p-8 text-center">
+                    <div className="text-2xl">🗣️</div>
+                    <div className="mt-2 text-[14px] font-semibold text-white">No posts yet — be the first to speak.</div>
+                    <div className="mt-1 text-[12px] text-[#b3bdd4]">Call a 100x, flex a bag, or shill a BaseStonk token above.</div>
+                  </div>
+                )}
+                {userPosts.map((p) => (
+                  <UserPostCard key={p.id} post={p} onLike={handleLike} />
                 ))}
               </div>
             </section>

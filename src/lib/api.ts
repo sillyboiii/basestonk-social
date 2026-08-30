@@ -77,10 +77,37 @@ export async function removeFollow(follower: string, target: string): Promise<vo
   await fetch(`/api/follows?follower=${follower}&target=${target}`, { method: 'DELETE' })
 }
 
+export async function fetchPosts(limit = 50): Promise<UserPost[]> {
+  return get(`/api/posts?limit=${limit}`)
+}
+
+export async function createPost(input: { author: string; body: string; tokenSymbol?: string; tokenImage?: string }): Promise<UserPost> {
+  const res = await fetch('/api/posts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+  if (!res.ok) {
+    const j = await res.json().catch(() => null)
+    throw new Error(j?.error || `${res.status}`)
+  }
+  return res.json()
+}
+
+export async function likePost(id: number): Promise<UserPost> {
+  return get(`/api/posts/${id}/like`)
+}
+
 export function fmtUsd(n: number, decimals = 2): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`
   return `$${n.toFixed(decimals)}`
+}
+
+export interface UserPost {
+  id: number
+  author: string
+  body: string
+  token_symbol: string | null
+  token_image: string | null
+  likes: number
+  created_at: string
 }
 
 export function fmtNum(n: number): string {

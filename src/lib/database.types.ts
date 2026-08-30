@@ -26,6 +26,36 @@ export type Database = {
         }
         Relationships: []
       }
+      posts: {
+        Row: {
+          id: number
+          author: string
+          body: string
+          token_symbol: string | null
+          token_image: string | null
+          likes: number
+          created_at: string
+        }
+        Insert: {
+          id?: number
+          author: string
+          body: string
+          token_symbol?: string | null
+          token_image?: string | null
+          likes?: number
+          created_at?: string
+        }
+        Update: {
+          id?: number
+          author?: string
+          body?: string
+          token_symbol?: string | null
+          token_image?: string | null
+          likes?: number
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {}
     Functions: {}
