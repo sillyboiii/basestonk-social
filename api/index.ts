@@ -374,15 +374,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (error) return res.status(500).json({ error: error.message })
           let bioRow: any = null
           try { const r = await sb.from('accounts').select('bio').eq('wallet', wallet).maybeSingle(); bioRow = r.data || null } catch { /* bio column not present */ }
-          if (bioRow) data = { ...data, bio: bioRow.bio }
+          if (bioRow) data = { ...(data as any), bio: bioRow.bio }
           let xRow: any = null
           try { const r = await sb.from('accounts').select('x_handle').eq('wallet', wallet).maybeSingle(); xRow = r.data || null } catch { /* x_handle column not present */ }
-          if (xRow) data = { ...data, x_handle: xRow.x_handle }
+          if (xRow) data = { ...(data as any), x_handle: xRow.x_handle }
           const [{ count: followers }, { count: following }] = await Promise.all([
             sb.from('follows').select('*', { count: 'exact', head: true }).eq('target', wallet),
             sb.from('follows').select('*', { count: 'exact', head: true }).eq('follower', wallet),
           ])
-          return res.json({ account: data ? { ...data, followers: followers || 0, following: following || 0 } : null })
+          return res.json({ account: data ? { ...(data as any), followers: followers || 0, following: following || 0 } : null })
         }
         if (limit) {
           const n = Math.min(Number(limit) || 200, 500)
