@@ -51,6 +51,14 @@ function TabGlyph({ k }: { k: string }) {
   }
 }
 
+function XIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className="shrink-0">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  )
+}
+
 const AVATARS = ['💎', '🐸', '🦅', '🚀', '🔥', '🧠', '👑', '😈', '🫘', '📈']
 
 // ─── Identity: stable pseudo-wallet per browser ────────────────────────────
@@ -560,7 +568,7 @@ const [mode, setMode] = useState<'post' | 'shot'>('post')
 
 // ─── User post card (social) ───────────────────────────────────────────────
 
-function UserPostCard({ post, onLike, onOpen, delay = 0, tokens }: { post: UserPost; onLike: (id: number) => Promise<void> | void; onOpen?: (wallet: string) => void; delay?: number; tokens?: Token[] }) {
+function UserPostCard({ post, onLike, onOpen, delay = 0, tokens, xHandles }: { post: UserPost; onLike: (id: number) => Promise<void> | void; onOpen?: (wallet: string) => void; delay?: number; tokens?: Token[]; xHandles?: Map<string, string> }) {
   const [liked, setLiked] = useState<'idle' | 'pending' | 'done'>('idle')
   const likedActive = liked !== 'idle'
 
@@ -605,6 +613,11 @@ function UserPostCard({ post, onLike, onOpen, delay = 0, tokens }: { post: UserP
             ) : (
               <span className="group"><CopyAddr addr={post.author} short={6} className="text-[14px] font-semibold text-white/90" /></span>
             )}
+            {xHandles?.has(post.author) && (
+              <a href={`https://x.com/${xHandles.get(post.author)}`} target="_blank" rel="noreferrer" className="inline-flex items-center text-[#1da1f2] hover:opacity-80 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                <XIcon size={13} />
+              </a>
+            )}
             <span className="text-[11px] text-[#3a4a75] shrink-0">{relativeTime(post.created_at)}</span>
           </div>
           <button onClick={() => onOpen?.(post.author)} className="mt-0.5 text-[11px] text-[#6b7a9a] transition-colors hover:text-white font-mono">{shortAddr(post.author, 8)}</button>
@@ -630,7 +643,7 @@ function UserPostCard({ post, onLike, onOpen, delay = 0, tokens }: { post: UserP
             : <span className="text-[11px] text-[#b3bdd4]">…pricing token</span>}
         </div>
       )}
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-3 flex items-center gap-1">
         <button
           onClick={() => {
             if (liked !== 'idle') return
@@ -642,6 +655,15 @@ function UserPostCard({ post, onLike, onOpen, delay = 0, tokens }: { post: UserP
           className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-semibold transition-all ${likedActive ? 'border-[#ea6055]/60 bg-[#ea6055]/10 text-[#ea6055]' : 'border-[#1f2740] text-[#b3bdd4] hover:border-[#ea6055]/40 hover:text-[#ea6055]'}`}
         >
           {likedActive ? '♥' : '♡'} {Math.max(0, post.likes ?? 0) + (liked === 'pending' ? 1 : 0)}
+        </button>
+        <button className="flex items-center gap-1.5 rounded-full border border-[#1f2740] px-3 py-1 text-[12px] font-semibold text-[#b3bdd4] hover:border-[#0052ff]/40 hover:text-[#0052ff] transition-all" title="Reply">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        </button>
+        <button className="flex items-center gap-1.5 rounded-full border border-[#1f2740] px-3 py-1 text-[12px] font-semibold text-[#b3bdd4] hover:border-[#45d68f]/40 hover:text-[#45d68f] transition-all" title="Repost">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        </button>
+        <button className="flex items-center gap-1.5 rounded-full border border-[#1f2740] px-3 py-1 text-[12px] font-semibold text-[#b3bdd4] hover:border-[#00c2ff]/40 hover:text-[#00c2ff] transition-all" title="Share">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
       </div>
     </article>
@@ -1110,19 +1132,20 @@ function CallersView({ rows, maxHitRate, onOpen }: { rows: CallerRow[]; maxHitRa
 
 // ─── Profile view: a wallet's posts + trades, followable ───────────────────
 
-function ProfileView({ identity, wallet, followed, userPosts, feedPosts, tokens, onFollow, onLike, onBack, onOpen }: {
+function ProfileView({ identity, wallet, followed, userPosts, feedPosts, tokens, onFollow, onLike, onBack, onOpen, xHandles }: {
   identity: string; wallet: string; followed: boolean; userPosts: UserPost[]; feedPosts: Post[]; tokens: Token[];
-  onFollow: () => void; onLike: (id: number) => Promise<void> | void; onBack: () => void; onOpen: (wallet: string) => void;
+  onFollow: () => void; onLike: (id: number) => Promise<void> | void; onBack: () => void; onOpen: (wallet: string) => void; xHandles?: Map<string, string>;
 }) {
   const [acc, setAcc] = useState<Account | null>(null)
   const [tab, setTab] = useState<'posts' | 'shots' | 'trades' | 'followers' | 'following'>('posts')
-  const [editingBio, setEditingBio] = useState(false)
   const [bioInput, setBioInput] = useState('')
+  const [xInput, setXInput] = useState('')
+  const [editingProfile, setEditingProfile] = useState(false)
   const own = wallet === identity
 
   useEffect(() => {
     let on = true
-    fetchAccount(wallet).then((a) => { if (on) { setAcc(a); setBioInput(a?.bio || '') } }).catch(() => null)
+    fetchAccount(wallet).then((a) => { if (on) { setAcc(a); setBioInput(a?.bio || ''); setXInput(a?.x_handle || '') } }).catch(() => null)
     return () => { on = false }
   }, [wallet])
 
@@ -1132,6 +1155,7 @@ function ProfileView({ identity, wallet, followed, userPosts, feedPosts, tokens,
   const theirTrades = useMemo(() => feedPosts.filter((p) => p.trader === wallet), [feedPosts, wallet])
   const handle = acc?.handle || myPosts.find((p) => p.handle)?.handle || null
   const avatar = acc?.avatar || myPosts.find((p) => p.avatar)?.avatar || ''
+  const xHandle = acc?.x_handle || null
 
   const tabs = [
     { key: 'posts', label: 'Posts', count: myRegularPosts.length },
@@ -1141,14 +1165,14 @@ function ProfileView({ identity, wallet, followed, userPosts, feedPosts, tokens,
     { key: 'following', label: 'Following', count: acc?.following || 0 },
   ] as const
 
-  async function saveBio() {
+  async function saveProfile() {
     if (!own) return
     const res = await fetch('/api/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wallet, bio: bioInput }),
+      body: JSON.stringify({ wallet, bio: bioInput, x_handle: xInput || null }),
     })
-    if (res.ok) { setAcc((a) => a ? { ...a, bio: bioInput } : null); setEditingBio(false) }
+    if (res.ok) { setAcc((a) => a ? { ...a, bio: bioInput, x_handle: xInput || null } : null); setEditingProfile(false) }
   }
 
   return (
@@ -1162,33 +1186,48 @@ function ProfileView({ identity, wallet, followed, userPosts, feedPosts, tokens,
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 {handle && <span className="font-display text-xl font-black text-white">@{handle}</span>}
+                {xHandle && (
+                  <a href={`https://x.com/${xHandle}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-[#1da1f2] hover:opacity-80 transition-opacity" title={xHandle} onClick={(e) => e.stopPropagation()}>
+                    <XIcon size={15} />
+                  </a>
+                )}
                 <CopyAddr addr={wallet} short={8} className="text-[12px] font-medium text-[#b3bdd4]" />
               </div>
-              {acc?.bio && !editingBio && (
+              {acc?.bio && !editingProfile && (
                 <p className="mt-2 text-[13px] text-white/80 leading-relaxed whitespace-pre-wrap">{acc.bio}</p>
               )}
-              {own && editingBio && (
-                <textarea
-                  value={bioInput}
-                  onChange={(e) => setBioInput(e.target.value.slice(0, 160))}
-                  placeholder="Tell the degens who you are…"
-                  className="mt-2 w-full rounded-lg border border-[#1f2740] bg-[#050a1e]/60 px-3 py-2 text-[13px] text-white placeholder-[#3a4a75] outline-none focus:border-[#0052ff] resize-none"
-                  rows={3}
-                />
+              {own && editingProfile && (
+                <>
+                  {acc?.bio && (
+                    <textarea
+                      value={bioInput}
+                      onChange={(e) => setBioInput(e.target.value.slice(0, 160))}
+                      placeholder="Tell the degens who you are…"
+                      className="mt-2 w-full rounded-lg border border-[#1f2740] bg-[#050a1e]/60 px-3 py-2 text-[13px] text-white placeholder-[#3a4a75] outline-none focus:border-[#0052ff] resize-none"
+                      rows={2}
+                    />
+                  )}
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={xInput}
+                      onChange={(e) => setXInput(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 60))}
+                      placeholder="x.com/yourhandle"
+                      className="w-full rounded-lg border border-[#1f2740] bg-[#050a1e]/60 px-3 py-2 text-[13px] text-white placeholder-[#3a4a75] outline-none focus:border-[#1da1f2]"
+                    />
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <button onClick={saveProfile} className="btn-gem px-3 py-1.5 text-[11px] font-bold">save</button>
+                    <button onClick={() => { setEditingProfile(false); setBioInput(acc?.bio || ''); setXInput(acc?.x_handle || '') }} className="btn-ghost px-3 py-1.5 text-[11px] font-semibold">cancel</button>
+                  </div>
+                </>
               )}
               <div className="mt-3 flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-4 text-[12px] text-[#b3bdd4]">
                   <span className="font-bold text-white">{acc?.followers || 0}</span> followers
                   <span className="font-bold text-white">{acc?.following || 0}</span> following
                 </div>
-                {own && !editingBio && (
-                  <button onClick={() => setEditingBio(true)} className="btn-ghost px-3 py-1.5 text-[11px] font-semibold">edit bio</button>
-                )}
-                {own && editingBio && (
-                  <div className="flex gap-2">
-                    <button onClick={saveBio} className="btn-gem px-3 py-1.5 text-[11px] font-bold">save</button>
-                    <button onClick={() => { setEditingBio(false); setBioInput(acc?.bio || '') }} className="btn-ghost px-3 py-1.5 text-[11px] font-semibold">cancel</button>
-                  </div>
+                {own && !editingProfile && (
+                  <button onClick={() => setEditingProfile(true)} className="btn-ghost px-3 py-1.5 text-[11px] font-semibold">edit profile</button>
                 )}
                 {!own && (
                   <button
@@ -1219,7 +1258,8 @@ function ProfileView({ identity, wallet, followed, userPosts, feedPosts, tokens,
           {tab === 'posts' && myRegularPosts.length === 0 && (
             <div className="card p-6 text-center text-[12px] text-[#3a4a75]">No posts yet — wallet silence.</div>
           )}
-          {tab === 'posts' && myRegularPosts.map((p, i) => <UserPostCard key={p.id} post={p} onLike={onLike} onOpen={onOpen} delay={i * 30} tokens={tokens} />)}
+          {tab === 'posts' && myRegularPosts.map((p, i) => <UserPostCard key={p.id} post={p} onLike={onLike} onOpen={onOpen} delay={i * 30} tokens={tokens} xHandles={xHandles} />)}
+          {tab === 'shots' && myShots.map((p, i) => <UserPostCard key={p.id} post={p} onLike={onLike} onOpen={onOpen} delay={i * 30} tokens={tokens} xHandles={xHandles} />)}
           {tab === 'shots' && myShots.length === 0 && (
             <div className="card p-6 text-center text-[12px] text-[#3a4a75]">No shots called yet.</div>
           )}
@@ -1258,6 +1298,7 @@ export default function App() {
   const [callers, setCallers] = useState<CallerRow[]>([])
   const [callersMax, setCallersMax] = useState(1)
   const [userPosts, setUserPosts] = useState<UserPost[]>([])
+  const [xHandles, setXHandles] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(true)
   const composerRef = useRef<HTMLDivElement>(null)
   const identity = useIdentity()
@@ -1330,7 +1371,23 @@ export default function App() {
     if (Array.isArray(postsRes)) setUserPosts(postsRes)
     if (Array.isArray(callersRes?.rows)) { setCallers(callersRes!.rows); setCallersMax(callersRes?.maxHitRate || 1) }
     setLoading(false)
+    loadXHandles(feedRes || [])
   }, [])
+
+  async function loadXHandles(feedItems: FeedItem[]) {
+    const wallets = [...new Set(feedItems.map((f) => f.trader).filter(Boolean))]
+    if (!wallets.length) return
+    try {
+      const res = await fetch('/api/accounts?limit=200')
+      const data = await res.json()
+      const accounts = Array.isArray(data?.accounts) ? data.accounts : []
+      const map = new Map<string, string>()
+      for (const a of accounts) {
+        if (a?.x_handle && wallets.includes(a.wallet)) map.set(a.wallet, a.x_handle)
+      }
+      setXHandles(map)
+    } catch { /* */ }
+  }
 
   useEffect(() => { loadAll() }, [loadAll])
   useEffect(() => {
@@ -1368,6 +1425,13 @@ export default function App() {
       <div className="bs-backdrop">
         <div className="bs-backdrop__stars bs-backdrop__stars--far" />
         <div className="bs-backdrop__stars bs-backdrop__stars--near" />
+      </div>
+      <div className="bg-decor">
+        <span style={{width:420,height:420,background:'#0052ff',top:'-8%',left:'-6%'}} />
+        <span style={{width:300,height:300,background:'#7b5cff',top:'40%',right:'-8%'}} />
+        <span style={{width:260,height:260,background:'#ff6ec7',bottom:'-6%',left:'30%'}} />
+        <span style={{width:180,height:180,background:'#45d68f',top:'20%',left:'60%'}} />
+        <span style={{width:340,height:340,background:'#0052ff',bottom:'20%',right:'-6%'}} />
       </div>
 
       <header className="sticky top-0 z-40 bg-[#050a1e]/80 backdrop-blur-md">
@@ -1426,6 +1490,7 @@ export default function App() {
             onLike={handleLike}
             onBack={() => { setProfileWallet(null); setView('home') }}
             onOpen={openProfile}
+            xHandles={xHandles}
           />
         )}
 
@@ -1474,7 +1539,7 @@ export default function App() {
                   </div>
                 )}
                 {visiblePosts.map((p, i) => (
-                  <UserPostCard key={p.id} post={p} onLike={handleLike} onOpen={openProfile} delay={i * 35} tokens={tokens} />
+                  <UserPostCard key={p.id} post={p} onLike={handleLike} onOpen={openProfile} delay={i * 35} tokens={tokens} xHandles={xHandles} />
                 ))}
               </div>
             </section>

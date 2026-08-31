@@ -180,6 +180,7 @@ export interface Account {
   handle: string | null
   avatar: string | null
   bio: string | null
+  x_handle: string | null
   followers: number
   following: number
 }

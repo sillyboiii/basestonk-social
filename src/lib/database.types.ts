@@ -74,6 +74,7 @@ export type Database = {
           handle: string | null
           avatar: string | null
           bio: string | null
+          x_handle: string | null
           created_at: string
         }
         Insert: {
@@ -81,6 +82,7 @@ export type Database = {
           handle?: string | null
           avatar?: string | null
           bio?: string | null
+          x_handle?: string | null
           created_at?: string
         }
         Update: {
@@ -88,6 +90,7 @@ export type Database = {
           handle?: string | null
           avatar?: string | null
           bio?: string | null
+          x_handle?: string | null
           created_at?: string
         }
         Relationships: []

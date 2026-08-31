@@ -364,23 +364,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const sb = getSupabase()
       if (!sb) return res.status(500).json({ error: 'accounts not configured' })
 
-      // GET ?wallet=
+      // GET ?wallet=  or ?limit=
       if (req.method === 'GET') {
         const u = new URL(url, 'http://x')
         const wallet = u.searchParams.get('wallet') || ''
-        if (!wallet) return res.json({ account: null })
-        let { data, error } = await sb.from('accounts').select('wallet, handle, avatar').eq('wallet', wallet).maybeSingle()
-        if (error) return res.status(500).json({ error: error.message })
-        // try bio if the column exists
-        let bioRow: any = null
-        try { const r = await sb.from('accounts').select('bio').eq('wallet', wallet).maybeSingle(); bioRow = r.data || null } catch { /* bio column not present */ }
-        if (bioRow) data = { ...data, bio: bioRow.bio }
-        // follower/following counts
-        const [{ count: followers }, { count: following }] = await Promise.all([
-          sb.from('follows').select('*', { count: 'exact', head: true }).eq('target', wallet),
-          sb.from('follows').select('*', { count: 'exact', head: true }).eq('follower', wallet),
-        ])
-        return res.json({ account: data ? { ...data, followers: followers || 0, following: following || 0 } : null })
+        const limit = u.searchParams.get('limit') || ''
+        if (wallet) {
+          let { data, error } = await sb.from('accounts').select('wallet, handle, avatar, x_handle').eq('wallet', wallet).maybeSingle()
+          if (error) return res.status(500).json({ error: error.message })
+          let bioRow: any = null
+          try { const r = await sb.from('accounts').select('bio').eq('wallet', wallet).maybeSingle(); bioRow = r.data || null } catch { /* bio column not present */ }
+          if (bioRow) data = { ...data, bio: bioRow.bio }
+          let xRow: any = null
+          try { const r = await sb.from('accounts').select('x_handle').eq('wallet', wallet).maybeSingle(); xRow = r.data || null } catch { /* x_handle column not present */ }
+          if (xRow) data = { ...data, x_handle: xRow.x_handle }
+          const [{ count: followers }, { count: following }] = await Promise.all([
+            sb.from('follows').select('*', { count: 'exact', head: true }).eq('target', wallet),
+            sb.from('follows').select('*', { count: 'exact', head: true }).eq('follower', wallet),
+          ])
+          return res.json({ account: data ? { ...data, followers: followers || 0, following: following || 0 } : null })
+        }
+        if (limit) {
+          const n = Math.min(Number(limit) || 200, 500)
+          const { data, error } = await sb.from('accounts').select('wallet, handle, x_handle').limit(n)
+          if (error) return res.status(500).json({ error: error.message })
+          return res.json({ accounts: data || [] })
+        }
+        return res.json({ account: null })
       }
 
       // POST { wallet, handle, avatar?, bio? } — upsert
@@ -391,6 +401,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (clean.length > 24) return res.status(400).json({ error: 'handle too long (max 24)' })
         const payload: any = { wallet: String(wallet), handle: clean || null, avatar: avatar ? String(avatar) : null }
         if (bio !== undefined) payload.bio = String(bio).slice(0, 160)
+        if (x_handle !== undefined) payload.x_handle = String(x_handle).replace(/^@/, '').slice(0, 60)
         const { data, error } = await sb.from('accounts').upsert(payload).select().single()
         if (error) return res.status(500).json({ error: error.message })
         return res.json(data)
