@@ -656,15 +656,6 @@ function UserPostCard({ post, onLike, onOpen, delay = 0, tokens, xHandles }: { p
         >
           {likedActive ? '♥' : '♡'} {Math.max(0, post.likes ?? 0) + (liked === 'pending' ? 1 : 0)}
         </button>
-        <button className="flex items-center gap-1.5 rounded-full border border-[#1f2740] px-3 py-1 text-[12px] font-semibold text-[#b3bdd4] hover:border-[#0052ff]/40 hover:text-[#0052ff] transition-all" title="Reply">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-        </button>
-        <button className="flex items-center gap-1.5 rounded-full border border-[#1f2740] px-3 py-1 text-[12px] font-semibold text-[#b3bdd4] hover:border-[#45d68f]/40 hover:text-[#45d68f] transition-all" title="Repost">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-        </button>
-        <button className="flex items-center gap-1.5 rounded-full border border-[#1f2740] px-3 py-1 text-[12px] font-semibold text-[#b3bdd4] hover:border-[#00c2ff]/40 hover:text-[#00c2ff] transition-all" title="Share">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-        </button>
       </div>
     </article>
   )
@@ -1425,13 +1416,6 @@ export default function App() {
       <div className="bs-backdrop">
         <div className="bs-backdrop__stars bs-backdrop__stars--far" />
         <div className="bs-backdrop__stars bs-backdrop__stars--near" />
-      </div>
-      <div className="bg-decor">
-        <span style={{width:420,height:420,background:'#0052ff',top:'-8%',left:'-6%'}} />
-        <span style={{width:300,height:300,background:'#7b5cff',top:'40%',right:'-8%'}} />
-        <span style={{width:260,height:260,background:'#ff6ec7',bottom:'-6%',left:'30%'}} />
-        <span style={{width:180,height:180,background:'#45d68f',top:'20%',left:'60%'}} />
-        <span style={{width:340,height:340,background:'#0052ff',bottom:'20%',right:'-6%'}} />
       </div>
 
       <header className="sticky top-0 z-40 bg-[#050a1e]/80 backdrop-blur-md">
