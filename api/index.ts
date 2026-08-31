@@ -395,7 +395,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // POST { wallet, handle, avatar?, bio? } — upsert
       if (req.method === 'POST') {
-        const { wallet, handle, avatar, bio } = req.body || {}
+        const { wallet, handle, avatar, bio, x_handle } = req.body || {}
         if (!wallet) return res.status(400).json({ error: 'wallet is required' })
         const clean = String(handle || '').trim()
         if (clean.length > 24) return res.status(400).json({ error: 'handle too long (max 24)' })
