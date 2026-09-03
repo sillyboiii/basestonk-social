@@ -314,6 +314,7 @@ const [mode, setMode] = useState<'post' | 'shot'>('post')
   const [showProfile, setShowProfile] = useState(false)
   const [handle, setHandle] = useState(() => localStorage.getItem('bstonk_handle') || '')
   const [avatar, setAvatar] = useState(() => localStorage.getItem('bstonk_avatar') || '')
+  const [xHandle, setXHandle] = useState(() => localStorage.getItem('bstonk_x_handle') || '')
   const [savingProfile, setSavingProfile] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -322,6 +323,18 @@ const [mode, setMode] = useState<'post' | 'shot'>('post')
   const [cropFile, setCropFile] = useState<File | null>(null)
 
   const shot = mode === 'shot'
+
+  useEffect(() => {
+    let alive = true
+    fetchAccount(identity).then((a) => {
+      if (!alive || !a) return
+      if (a.handle && !localStorage.getItem('bstonk_handle')) { setHandle(a.handle); localStorage.setItem('bstonk_handle', a.handle) }
+      if (a.avatar && !localStorage.getItem('bstonk_avatar')) { setAvatar(a.avatar); localStorage.setItem('bstonk_avatar', a.avatar) }
+      if (a.x_handle && !localStorage.getItem('bstonk_x_handle')) { setXHandle(a.x_handle); localStorage.setItem('bstonk_x_handle', a.x_handle) }
+    }).catch(() => null)
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identity])
 
   const ticker = useMemo(() => probeTicker(body, caret), [body, caret])
   const matches = useMemo(() => {
@@ -387,11 +400,13 @@ const [mode, setMode] = useState<'post' | 'shot'>('post')
   async function saveProfile() {
     setSavingProfile(true)
     try {
-      const acc = await saveAccount({ wallet: identity, handle: handle.trim(), avatar })
+      const acc = await saveAccount({ wallet: identity, handle: handle.trim(), avatar, x_handle: xHandle.trim().replace(/^@/, '') || null })
       localStorage.setItem('bstonk_handle', acc.handle || '')
       localStorage.setItem('bstonk_avatar', acc.avatar || '')
+      localStorage.setItem('bstonk_x_handle', acc.x_handle || '')
       setHandle(acc.handle || '')
       setAvatar(acc.avatar || '')
+      setXHandle(acc.x_handle || '')
       setShowProfile(false)
     } catch (e: any) {
       setError(e.message || 'Save failed')
@@ -424,12 +439,19 @@ const [mode, setMode] = useState<'post' | 'shot'>('post')
                 placeholder="degensapiens"
                 className="mt-1.5 w-full rounded-lg border border-[#1f2740] bg-[#050a1e]/60 px-3 py-1.5 text-[13px] text-white placeholder-[#3a4a75] outline-none focus:border-[#0052ff]"
               />
+              <div className="mt-2.5 text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">X / Twitter @</div>
+              <input
+                value={xHandle}
+                onChange={(e) => setXHandle(e.target.value.replace(/[^\w0-9_]/g, '').slice(0, 60))}
+                placeholder="degensapiens"
+                className="mt-1.5 w-full rounded-lg border border-[#1f2740] bg-[#050a1e]/60 px-3 py-1.5 text-[13px] text-white placeholder-[#3a4a75] outline-none focus:border-[#0052ff]"
+              />
               <div className="mt-2.5 flex items-end justify-between gap-3 text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Avatar<span className="text-[#3a4a75]">96px · auto-cropped</span></div>
               <div className="mt-1.5 flex items-center gap-3">
                 <Avatar wallet={identity} avatar={avatar} size={52} className="ring-2 ring-[#0052ff]/40" />
                 <div className="flex flex-col gap-1.5">
                   <button onClick={() => fileRef.current?.click()} className="btn-ghost px-3 py-1.5 text-[12px] font-semibold">📷 {isImgAvatar(avatar) ? 'Change photo' : 'Upload photo'}</button>
-                  <button onClick={() => { setAvatar(''); setCropFile(null); setHandle(''); saveProfile() }} className="px-3 py-1 text-[11px] text-[#3a4a75] transition-colors hover:text-[#ea6055]">remove photo</button>
+                  <button onClick={() => { setAvatar(''); setCropFile(null); setHandle(''); setXHandle(''); saveProfile() }} className="px-3 py-1 text-[11px] text-[#3a4a75] transition-colors hover:text-[#ea6055]">remove photo</button>
                 </div>
               </div>
               <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickFile} />

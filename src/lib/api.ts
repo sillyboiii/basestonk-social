@@ -129,7 +129,7 @@ export async function fetchAccount(wallet: string): Promise<Account | null> {
   return j.account
 }
 
-export async function saveAccount(input: { wallet: string; handle: string; avatar?: string }): Promise<Account> {
+export async function saveAccount(input: { wallet: string; handle: string; avatar?: string; x_handle?: string | null }): Promise<Account> {
   const res = await fetch('/api/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
   if (!res.ok) {
     const j = await res.json().catch(() => null)
