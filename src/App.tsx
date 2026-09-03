@@ -591,7 +591,7 @@ function UserPostCard({ post, onLike, onOpen, delay = 0, tokens, xHandles }: { p
   const isShot = post.kind === 'shot'
   return (
     <article
-      className={`card p-4 fade-up ${isShot ? 'relative overflow-hidden' : ''}`}
+      className={`card p-3.5 fade-up md:p-4 ${isShot ? 'relative overflow-hidden' : ''}`}
       style={{
         animationDelay: `${delay}ms`,
         ...(isShot ? {
@@ -1465,15 +1465,16 @@ export default function App() {
       )}
 
       {/* mobile bottom tab bar (app-style) */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#1f2740] bg-[#040919]/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
-        <div className="mx-auto flex max-w-lg gap-1 px-2 py-1.5">
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#1f2740] bg-[#040919]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
+        <div className="mx-auto flex max-w-lg items-stretch gap-1 px-2 pt-1.5">
           {NAV.map((item) => (
             <button
               key={item.key} onClick={() => setView(item.key)}
-              className={`flex flex-1 flex-col items-center gap-0.5 rounded-full px-1 py-2 text-[10px] font-bold transition-all ${view === item.key ? 'bg-[#0052ff]/20 text-[#0052ff]' : 'text-[#b3bdd4] hover:bg-[#0d142b]/40 hover:text-white'}`}
+              className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-1 pb-2 pt-1.5 text-[10px] font-bold transition-colors ${view === item.key ? 'text-[#0052ff]' : 'text-[#b3bdd4] active:text-white'}`}
             >
-              <span className={`leading-none ${view === item.key ? 'drop-shadow-[0_0_6px_rgba(0,82,255,0.7)]' : 'opacity-70'}`}><TabGlyph k={item.key} /></span>
+              <span className={`leading-none transition-transform ${view === item.key ? 'scale-105 drop-shadow-[0_0_8px_rgba(0,82,255,0.6)]' : 'opacity-80'}`}><TabGlyph k={item.key} /></span>
               {item.label}
+              <span className={`absolute inset-x-4 top-0 h-0.5 rounded-full transition-opacity ${view === item.key ? 'bg-[#0052ff] opacity-100' : 'opacity-0'}`} />
             </button>
           ))}
         </div>
@@ -1504,10 +1505,10 @@ export default function App() {
         {view === 'home' && (
           <div className="flex gap-6">
             <section className="min-w-0 flex-1">
-              <div className="mb-5 flex flex-wrap items-end justify-between gap-3 px-1">
+              <div className="mb-4 flex flex-wrap items-end justify-between gap-3 px-1 md:mb-5">
                 <div>
-                  <h1 className="font-display text-4xl font-black tracking-tight text-white">The <span className="text-[#0052ff]">feed</span></h1>
-                  <p className="mt-1 text-[14px] font-medium text-[#b3bdd4]">Degens call their shots, flex their bags, shill their coins.</p>
+                  <h1 className="hidden font-display text-4xl font-black tracking-tight text-white md:block">The <span className="text-[#0052ff]">feed</span></h1>
+                  <p className="mt-1 text-[13px] font-medium text-[#6b7a9a] md:text-[14px] md:text-[#b3bdd4]">Degens call their shots, flex their bags, shill their coins.</p>
                 </div>
                 <div className="hidden sm:block">
                   <div className="card px-4 py-2"><div className="text-[10px] uppercase tracking-wider text-[#b3bdd4]">24h vol</div><div className="font-display text-lg font-black stat-grad number-anim">{fmtUsd(stats.vol24)}</div></div>
@@ -1518,22 +1519,24 @@ export default function App() {
                 <Composer identity={identity} allStonks={allStonks} tokens={tokens} onPosted={loadAll} onOpenProfile={openProfile} />
               </div>
 
-              <div className="mt-4 flex items-center gap-3">
-                <div className="flex items-center gap-1 rounded-full border border-[#1f2740] bg-[#081029] p-1">
-                  {(['general', 'following'] as const).map((m) => (
-                    <button
-                      key={m}
-                      onClick={() => setFeedMode(m)}
-                      className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-[12px] font-bold transition-all ${feedMode === m ? 'bg-white text-[#09090b]' : 'text-[#b3bdd4] hover:text-white'}`}
-                    >
-                      {m === 'general' ? 'General' : `Following · ${following.size}`}
-                    </button>
-                  ))}
+              <div className="sticky top-[52px] z-20 -mx-4 mt-3 border-y border-[#1f2740] bg-[#040919]/90 px-4 py-2 backdrop-blur-md md:static md:z-auto md:mx-0 md:mt-4 md:border-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1 rounded-full border border-[#1f2740] bg-[#081029] p-1">
+                    {(['general', 'following'] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setFeedMode(m)}
+                        className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-[12px] font-bold transition-all ${feedMode === m ? 'bg-white text-[#09090b]' : 'text-[#b3bdd4] hover:text-white'}`}
+                      >
+                        {m === 'general' ? 'General' : `Following · ${following.size}`}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="hidden text-[11px] text-[#3a4a75] sm:block">follow wallets to build your own feed</span>
                 </div>
-                <span className="hidden text-[11px] text-[#3a4a75] sm:block">follow wallets to build your own feed</span>
               </div>
 
-              <div className="mt-4 space-y-4">
+              <div className="mt-4 space-y-3 md:space-y-4">
                 {visiblePosts.length === 0 && (
                   <div className="card p-8 text-center pop-in">
                     <div className="text-2xl">{feedMode === 'following' ? '🫂' : '🗣️'}</div>
