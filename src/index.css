@@ -2,8 +2,8 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #050a1e;
-  --panel: #0d142b;
+  --bg: #040919;
+  --panel: #081029;
   --rail: #1f2740;
   --border: #1f2740;
   --gem: #0052ff;
@@ -15,6 +15,12 @@
   --up: #45d68f;
   --down: #ea6055;
   --gold: #f5c847;
+  /* basestonk.io surface-card tokens */
+  --surface: rgba(8, 16, 41, 0.6);
+  --surface-border: #1f2740;
+  --radius-lg: 24px;
+  --radius-md: 18px;
+  --radius-sm: 12px;
 }
 
 * { box-sizing: border-box; }
@@ -44,21 +50,20 @@ body {
 
 .gem-glow { filter: drop-shadow(0 0 14px rgba(0,82,255,0.55)); }
 
-/* BaseStonk starfield backdrop */
+/* BaseStonk backdrop — subtle navy grid (matches basestonk.io) */
 .bs-backdrop {
   position: fixed; inset: 0; z-index: 0; pointer-events: none;
   overflow: hidden; contain: strict;
 }
-.bs-backdrop__stars {
-  position: absolute; left: 0; right: 0; top: 0; height: 200%;
-  background-repeat: repeat;
-  animation: bs-drift linear infinite;
-}
-.bs-backdrop__stars--far  { --bs-drift: -220px; background-image: url('/bstonk-brand/far.svg'); }
-.bs-backdrop__stars--near { --bs-drift: -380px; background-image: url('/bstonk-brand/near.svg'); }
-@keyframes bs-drift {
-  0% { transform: translateZ(0); }
-  to { transform: translate3d(0, var(--bs-drift), 0); }
+.bs-backdrop::after {
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(31,39,64,0.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(31,39,64,0.35) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 90% 80% at 50% 0%, #000 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 0%, #000 30%, transparent 80%);
 }
 
 /* BaseStonk badge chips (PLATFORM / OG / features) */
@@ -67,11 +72,10 @@ body {
 .bs-badge-soft { color: #e8edf7; background: rgba(232,237,247,0.1); }
 
 .card {
-  background: linear-gradient(180deg, #0c1531 0%, #091128 100%);
-  border: 1px solid var(--border);
-  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
 }
-
 .card-hover { transition: all 0.2s ease; }
 .card-hover:hover { border-color: rgba(0,129,255,0.55); transform: translateY(-2px); box-shadow: 0 10px 30px rgba(0,40,120,0.25); }
 
@@ -101,15 +105,18 @@ body {
 }
 .btn-ghost:hover { border-color: rgba(0,82,255,0.6); color: var(--ink); }
 
-/* gem CTA (connect wallet button) */
+/* gem CTA (matches basestonk.io 'Connect' pill: white bg, blue 2px border) */
 .btn-gem {
-  background: linear-gradient(135deg, var(--gem-deep) 0%, var(--gem) 60%, var(--gem-bright) 100%);
-  color: #fff;
+  background: #fff;
+  color: #0052ff;
   border-radius: 999px;
+  border: 2px solid var(--gem);
+  font-weight: 700;
   transition: all 0.2s ease;
 }
-.btn-gem:hover { filter: brightness(1.12); transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,82,255,0.4); }
+.btn-gem:hover { background: #eef2ff; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,82,255,0.3); }
 .btn-gem:active { transform: translateY(0) scale(0.99); }
+.btn-gem.outline { background: transparent; color: #fff; }
 
 /* gradient stat numbers (match BaseStonk hero tiles) */
 .stat-grad {
@@ -205,3 +212,30 @@ body {
     linear-gradient(90deg, rgba(47,123,255,0.05) 1px, transparent 1px);
   background-size: 42px 42px;
 }
+
+/* ─── basestonk.io-style horizontal marquee ticker ─────────────────────── */
+.marquee { overflow: hidden; white-space: nowrap; position: relative; }
+.marquee__inner { display: inline-flex; align-items: center; gap: 2.5rem; padding-left: 100%; animation: marquee-scroll linear infinite; will-change: transform; }
+@keyframes marquee-scroll { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+
+/* basestonk.io navy grid backdrop (replaces starfield drift) */
+.bs-backdrop__grid {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(31,39,64,0.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(31,39,64,0.35) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 90% 80% at 50% 0%, #000 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 0%, #000 30%, transparent 80%);
+}
+
+/* basestonk.io surface tile (hero stats etc.) */
+.surface-tile {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+}
+
+/* table/list row hover — matches basestonk.io token rows */
+.list-row { border-radius: var(--radius-md); transition: background 0.15s ease, border-color 0.15s ease; }
+.list-row:hover { background: rgba(255,255,255,0.03); }

@@ -416,7 +416,7 @@ const [mode, setMode] = useState<'post' | 'shot'>('post')
         </button>
         <div className="min-w-0 flex-1">
           {showProfile && (
-            <div className="pop-in mb-3 rounded-xl border border-[#0052ff]/40 bg-[#0c1531] p-3">
+            <div className="pop-in mb-3 rounded-xl border border-[#0052ff]/40 bg-[#081029] p-3">
               <div className="text-[10px] font-bold uppercase tracking-wider text-[#b3bdd4]">Your @handle</div>
               <input
                 value={handle}
@@ -484,11 +484,11 @@ const [mode, setMode] = useState<'post' | 'shot'>('post')
               onFocus={refreshCaret}
               rows={3}
               placeholder={shot ? 'Call your shot… type $ then the ticker' : 'Type your call… just type $ then the ticker to tag it'}
-              className="w-full resize-none rounded-xl border border-[#1f2740] bg-[#050a1e]/60 p-3 text-[14px] text-white placeholder-[#3a4a75] outline-none transition-colors focus:border-[#0052ff]"
+              className="w-full resize-none rounded-xl border border-[#1f2740] bg-[#040919]/50 p-3 text-[14px] text-white placeholder-[#3a4a75] outline-none transition-colors focus:border-[#0052ff]"
             />
             {showTick && tickPos && (
               <div
-                className="drop-panel absolute z-50 w-64 overflow-hidden rounded-xl border border-[#1f2740] bg-[#0c1531] shadow-2xl"
+                className="drop-panel absolute z-50 w-64 overflow-hidden rounded-xl border border-[#1f2740] bg-[#081029] shadow-2xl"
                 style={{
                   left: Math.min(tickPos.x, Math.max(8, window.innerWidth - 272)),
                   top: tickPos.flip ? Math.max(0, tickPos.y - 330) : tickPos.y + (tickPos.line || 22),
@@ -515,7 +515,7 @@ const [mode, setMode] = useState<'post' | 'shot'>('post')
 
           <div className="mt-2 flex items-center justify-between gap-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <div className="relative flex items-center gap-1 rounded-full bg-[#0d142b] p-0.5">
+              <div className="relative flex items-center gap-1 rounded-full bg-[#081029] p-0.5">
                 <button
                   type="button"
                   onClick={() => setMode('post')}
@@ -532,7 +532,7 @@ const [mode, setMode] = useState<'post' | 'shot'>('post')
                 </button>
               </div>
               {tag && (
-                <button onClick={() => { setTag(null); setMode('post') }} className="flex items-center gap-1.5 rounded-full bg-[#0d142b] px-2 py-1 text-[11px] text-[#b3bdd4] hover:text-white">
+                <button onClick={() => { setTag(null); setMode('post') }} className="flex items-center gap-1.5 rounded-full bg-[#081029] px-2 py-1 text-[11px] text-[#b3bdd4] hover:text-white">
                   <CoinGlyph src={tag.imageUrl || tag.logoUrl} symbol={tag.symbol} size={16} ring={false} />
                   <span className="font-bold text-[#0052ff]">${tag.symbol}</span>
                   ✕
@@ -597,7 +597,7 @@ function UserPostCard({ post, onLike, onOpen, delay = 0, tokens, xHandles }: { p
         ...(isShot ? {
           border: '1px solid rgba(123,92,255,0.55)',
           boxShadow: 'inset 0 0 0 1px rgba(255,110,199,0.28), 0 8px 30px rgba(123,92,255,0.13)',
-          background: 'linear-gradient(180deg, rgba(255,110,199,0.06), rgba(123,92,255,0.12)), linear-gradient(180deg, #0c1531, #0a1229)',
+          background: 'linear-gradient(180deg, rgba(255,110,199,0.06), rgba(123,92,255,0.12)), var(--surface)',
         } : {}),
       }}
     >
@@ -623,7 +623,7 @@ function UserPostCard({ post, onLike, onOpen, delay = 0, tokens, xHandles }: { p
           <button onClick={() => onOpen?.(post.author)} className="mt-0.5 text-[11px] text-[#6b7a9a] transition-colors hover:text-white font-mono">{shortAddr(post.author, 8)}</button>
         </div>
         {post.token_symbol && (
-          <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 pop-in shrink-0 ${isShot ? 'border border-[#7b5cff]/50 bg-gradient-to-r from-[#ff6ec7]/10 to-[#7b5cff]/15' : 'border border-[#0052ff]/40 bg-[#0d142b]'}`}>
+          <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 pop-in shrink-0 ${isShot ? 'border border-[#7b5cff]/50 bg-[#0a0f24]' : 'border border-[#1f2740] bg-[#0a0f24]'}`}>
             <CoinGlyph src={post.token_image || undefined} symbol={post.token_symbol} size={18} ring={false} />
             <span className={`text-[12px] font-bold ${isShot ? 'bg-gradient-to-r from-[#ff6ec7] to-[#7b5cff] bg-clip-text text-transparent' : 'text-[#0052ff]'}`}>{isShot ? '🎯 ' : ''}${post.token_symbol}</span>
             {isShot && <span className="text-[9px] font-black uppercase tracking-wider text-[#7b5cff]/80">shot</span>}
@@ -939,7 +939,7 @@ function TopTokenSpotlight({ t }: { t?: Token }) {
   return (
     <button
       onClick={() => window.open(url, '_blank', 'noopener')}
-      className="group min-w-[272px] overflow-hidden rounded-2xl border border-[#0052ff]/30 bg-gradient-to-br from-[#0c1531] via-[#0d142b] to-[#0a0f22] p-3 pl-4 text-left shadow-[0_0_18px_rgba(0,82,255,0.12)] transition-all hover:border-[#0052ff]/70 hover:shadow-[0_0_28px_rgba(0,82,255,0.3)] pop-in"
+      className="group min-w-[272px] overflow-hidden rounded-2xl border border-[#0052ff]/30 bg-gradient-to-br from-[#081029] via-[#0a0f24] to-[#040919] p-3 pl-4 text-left shadow-[0_0_18px_rgba(0,82,255,0.12)] transition-all hover:border-[#0052ff]/70 hover:shadow-[0_0_28px_rgba(0,82,255,0.3)] pop-in"
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#f5c847]">🔥 Top mover</div>
@@ -1399,10 +1399,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="relative grid min-h-screen place-items-center">
-        <div className="bs-backdrop">
-          <div className="bs-backdrop__stars bs-backdrop__stars--far" />
-          <div className="bs-backdrop__stars bs-backdrop__stars--near" />
-        </div>
+        <div className="bs-backdrop" />
         <div className="relative z-10 text-center pop-in">
           <img src="/bstonk.webp" alt="" className="mx-auto h-14 w-14 gem-glow loading-spin" />
           <div className="mt-3 animate-pulse text-sm text-[#b3bdd4]">live on base…</div>
@@ -1413,36 +1410,62 @@ export default function App() {
 
   return (
     <div className="relative min-h-screen">
-      <div className="bs-backdrop">
-        <div className="bs-backdrop__stars bs-backdrop__stars--far" />
-        <div className="bs-backdrop__stars bs-backdrop__stars--near" />
-      </div>
+      <div className="bs-backdrop" />
 
-      <header className="sticky top-0 z-40 bg-[#050a1e]/80 backdrop-blur-md">
-        <div className="mx-auto flex h-[70px] max-w-7xl items-center justify-between gap-4 px-4">
+      <header className="sticky top-0 z-40 bg-[#040919]/70 backdrop-blur-md">
+        <div className="mx-auto flex h-[52px] max-w-7xl items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-2.5">
             <div className="logo-gem">
-              <img src="/bstonk.webp" alt="" className="h-9 w-9 rounded-full gem-glow" />
+              <img src="/bstonk.webp" alt="" className="h-8 w-8 rounded-full gem-glow" />
             </div>
-            <span className="font-display text-[17px] font-black tracking-tight text-white">BASE<span className="text-[#0052ff]">STONK</span></span>
+            <span className="font-display text-[16px] font-black tracking-tight text-white">BASE<span className="text-[#0052ff]">STONK</span></span>
           </div>
 
-          <nav className="pill-nav row hidden gap-1 p-1 md:flex">
+          <nav className="hidden items-center gap-1 md:flex">
             {NAV.map((item) => (
-              <button key={item.key} onClick={() => setView(item.key)} data-active={view === item.key} className="pill-nav-item px-4 py-1.5">
+              <button
+                key={item.key} onClick={() => setView(item.key)}
+                className={`rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors ${view === item.key ? 'bg-[#081029] text-white' : 'text-[#b3bdd4] hover:bg-[#081029]/60 hover:text-white'}`}
+              >
                 {item.label}
               </button>
             ))}
           </nav>
 
-          <button className="btn-gem shimmer-btn px-5 py-2 text-[13px] font-bold" onClick={() => { setView('home'); setTimeout(() => composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80) }}>
-            Post
-          </button>
+          <div className="flex items-center gap-2">
+            <button className="hidden items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold text-[#b3bdd4] transition-colors hover:bg-[#081029]/60 hover:text-white lg:flex" title="Search tokens">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <span>Search tokens</span>
+            </button>
+            <button className="btn-gem shimmer-btn px-4 py-1.5 text-[12px] font-bold" onClick={() => { setView('home'); setTimeout(() => composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80) }}>
+              Post
+            </button>
+          </div>
         </div>
       </header>
 
+      {/* marquee ticker — matches basestonk.io recent-launches strip */}
+      {view === 'home' && (
+        <div className="relative z-10 border-b border-[#1f2740] bg-[#040919]/60">
+          <div className="marquee mx-auto max-w-7xl px-0">
+            <div className="marquee__inner" style={{ animationDuration: '40s' }}>
+              {[...tokens.slice(0, 18), ...tokens.slice(0, 6)].map((t, i) => {
+                const up = t.change24hPct >= 0
+                return (
+                  <span key={t.address + i} className="inline-flex items-center gap-2 text-[12px] font-semibold text-[#b3bdd4]">
+                    <img src={t.imageUrl || t.logoUrl} alt="" className="h-4 w-4 rounded-full object-cover" onError={(e) => { (e.currentTarget.style.display = 'none') }} />
+                    <span className="font-bold text-white">${t.symbol}</span>
+                    <span className={up ? 'text-[#45d68f]' : 'text-[#ea6055]'}>{up ? '▲' : '▼'} {Math.abs(t.change24hPct ?? 0).toFixed(2)}%</span>
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* mobile bottom tab bar (app-style) */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#1f2740] bg-[#050a1e]/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#1f2740] bg-[#040919]/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
         <div className="mx-auto flex max-w-lg gap-1 px-2 py-1.5">
           {NAV.map((item) => (
             <button
@@ -1496,7 +1519,7 @@ export default function App() {
               </div>
 
               <div className="mt-4 flex items-center gap-3">
-                <div className="flex items-center gap-1 rounded-full border border-[#1f2740] bg-[#0c1531] p-1">
+                <div className="flex items-center gap-1 rounded-full border border-[#1f2740] bg-[#081029] p-1">
                   {(['general', 'following'] as const).map((m) => (
                     <button
                       key={m}
